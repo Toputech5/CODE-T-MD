@@ -12,13 +12,50 @@ const {
 
 /**
  * =========================
+ * BASE64 SESSION LOADER
+ * =========================
+ */
+async function loadSession() {
+  const sessionPath = path.join(__dirname, "session");
+
+  if (!fs.existsSync(sessionPath)) {
+    fs.mkdirSync(sessionPath);
+  }
+
+  const credsPath = path.join(sessionPath, "creds.json");
+
+  // Skip if already exists
+  if (fs.existsSync(credsPath)) return;
+
+  if (!config.SESSION_ID) {
+    console.log("❌ No SESSION_ID found in config.js");
+    return;
+  }
+
+  try {
+    const decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf-8");
+    fs.writeFileSync(credsPath, decoded);
+    console.log("✅ Base64 session loaded successfully");
+  } catch (err) {
+    console.log("❌ Invalid SESSION_ID", err);
+  }
+}
+
+/**
+ * =========================
  * PLUGIN LOADER (FAST MAP)
  * =========================
  */
 function loadPlugins() {
   const pluginMap = new Map();
 
-  const files = fs.readdirSync(path.join(__dirname, "plugins"))
+  const pluginDir = path.join(__dirname, "plugins");
+
+  if (!fs.existsSync(pluginDir)) {
+    fs.mkdirSync(pluginDir);
+  }
+
+  const files = fs.readdirSync(pluginDir)
     .filter(f => f.endsWith(".js"));
 
   for (let file of files) {
@@ -41,14 +78,18 @@ function loadPlugins() {
  * =========================
  */
 async function startBot() {
+
+  // 🔐 Load Base64 session before connecting
+  await loadSession();
+
   const { state, saveCreds } = await useMultiFileAuthState(
     path.join(__dirname, "session")
   );
 
   const sock = makeWASocket({
     auth: state,
-    logger: pino({ level: "silent" }),
-    printQRInTerminal: true,
+    logger: pino({ level: config.LOG_LEVEL || "silent" }),
+    printQRInTerminal: false,
     browser: ["CODE-T MD", "Chrome", "1.0.0"]
   });
 
@@ -78,7 +119,7 @@ async function startBot() {
         console.log("♻️ Reconnecting CODE-T MD...");
         startBot();
       } else {
-        console.log("❌ Logged out. Rescan QR.");
+        console.log("❌ Logged out. Update SESSION_ID.");
       }
     }
   });
