@@ -25,7 +25,7 @@ module.exports = {
   SESSION_NAME: "session",
 
   // 🔐 IMPORTANT (ADD THIS)
-  SESSION_ID: "", // paste your base64 session here (eyJ...)
+  SESSION_ID: process.env.SESSION_ID || "", // paste your base64 session here (eyJ...)
 
   /**
    * =========================
