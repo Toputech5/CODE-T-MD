@@ -1,1 +1,55 @@
+{
+  "name": "code-t-md",
+  "version": "1.0.0",
+  "description": "CODE-T MD WhatsApp Bot - Advanced Multi-Device System",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "baileys",
+    "md-bot",
+    "code-t",
+    "automation"
+  ],
+  "author": "CODE-T",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
 
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.5",
+    "pino": "^8.17.0",
+
+    "axios": "^1.6.8",
+    "node-fetch": "^2.6.9",
+
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+
+    "fs-extra": "^11.2.0",
+    "path": "^0.12.7",
+
+    "moment-timezone": "^0.5.45",
+    "chalk": "^4.1.2",
+
+    "file-type": "^18.5.0",
+    "mime-types": "^2.1.35",
+
+    "qrcode": "^1.5.4",
+
+    "mongoose": "^8.3.3",
+    "pg": "^8.11.5",
+
+    "dotenv": "^16.4.5"
+  },
+
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
