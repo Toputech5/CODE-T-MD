@@ -14,7 +14,7 @@ module.exports = {
    * =========================
    */
   OWNER_NAME: "CODE-T OWNER",
-  OWNER_NUMBER: "255XXXXXXXXX", // change to your number
+  OWNER_NUMBER: "255XXXXXXXXX", // replace with your number
   OWNER_JID: "255XXXXXXXXX@s.whatsapp.net",
 
   /**
@@ -24,6 +24,9 @@ module.exports = {
    */
   SESSION_NAME: "session",
 
+  // 🔐 IMPORTANT (ADD THIS)
+  SESSION_ID: "", // paste your base64 session here (eyJ...)
+
   /**
    * =========================
    * STATUS SYSTEM
@@ -32,8 +35,6 @@ module.exports = {
   AUTO_STATUS_VIEW: true,
   AUTO_STATUS_READ: true,
   AUTO_STATUS_LIKE: true,
-
-  // emoji used for status reaction
   STATUS_REACTION: "🔥",
 
   /**
@@ -41,7 +42,7 @@ module.exports = {
    * BOT MODE SETTINGS
    * =========================
    */
-  PUBLIC_MODE: true, // false = private bot
+  PUBLIC_MODE: true,
   AUTO_READ_MESSAGES: true,
 
   /**
