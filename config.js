@@ -4,25 +4,25 @@ module.exports = {
    * BOT BASIC SETTINGS
    * =========================
    */
-  BOT_NAME: "CODE-T MD",
-  PREFIX: ".",
-  VERSION: "1.0.0",
+  BOT_NAME: process.env.BOT_NAME || "CODE-T MD",
+  PREFIX: process.env.PREFIX || ".",
+  VERSION: process.env.VERSION || "1.0.0",
 
   /**
    * =========================
    * OWNER SETTINGS
    * =========================
    */
-  OWNER_NAME: "CODE-T OWNER",
-  OWNER_NUMBER: "255XXXXXXXXX",
-  OWNER_JID: "255XXXXXXXXX@s.whatsapp.net",
+  OWNER_NAME: process.env.OWNER_NAME || "CODE-T OWNER",
+  OWNER_NUMBER: process.env.OWNER_NUMBER || "255XXXXXXXXX",
+  OWNER_JID: process.env.OWNER_JID || "255XXXXXXXXX@s.whatsapp.net",
 
   /**
    * =========================
    * SESSION SETTINGS
    * =========================
    */
-  SESSION_NAME: "session",
+  SESSION_NAME: process.env.SESSION_NAME || "session",
   SESSION_ID: process.env.SESSION_ID || "",
 
   /**
@@ -30,45 +30,44 @@ module.exports = {
    * STATUS SYSTEM
    * =========================
    */
-  AUTO_STATUS_VIEW: true,
-  AUTO_STATUS_READ: true,
-  AUTO_STATUS_LIKE: true,
-  STATUS_REACTION: "🔥",
+  AUTO_STATUS_VIEW: process.env.AUTO_STATUS_VIEW === "true",
+  AUTO_STATUS_READ: process.env.AUTO_STATUS_READ === "true",
+  AUTO_STATUS_LIKE: process.env.AUTO_STATUS_LIKE === "true",
+  STATUS_REACTION: process.env.STATUS_REACTION || "🔥",
 
   /**
    * =========================
    * BOT MODE SETTINGS
    * =========================
    */
-  PUBLIC_MODE: true,
-  AUTO_READ_MESSAGES: true,
+  PUBLIC_MODE: process.env.PUBLIC_MODE === "true",
+  AUTO_READ_MESSAGES: process.env.AUTO_READ_MESSAGES === "true",
 
   /**
    * =========================
    * ⚡ AUTO PRESENCE SYSTEM
    * =========================
    */
-  AUTO_PRESENCE: true,
+  AUTO_PRESENCE: process.env.AUTO_PRESENCE === "true",
 
-  // typing | online | recording | off
-  PRESENCE_TYPE: "typing",
+  // typing | online | recording | ai_human
+  PRESENCE_TYPE: process.env.PRESENCE_TYPE || "typing",
 
-  // delay before triggering presence again (ms)
-  PRESENCE_COOLDOWN: 4000,
+  PRESENCE_COOLDOWN: Number(process.env.PRESENCE_COOLDOWN) || 4000,
 
   /**
    * =========================
    * SAFETY / CONTROL
    * =========================
    */
-  ANTI_LINK: false,
-  ANTI_SPAM: false,
+  ANTI_LINK: process.env.ANTI_LINK === "true",
+  ANTI_SPAM: process.env.ANTI_SPAM === "true",
 
   /**
    * =========================
    * SYSTEM SETTINGS
    * =========================
    */
-  AUTO_RECONNECT: true,
-  LOG_LEVEL: "silent"
+  AUTO_RECONNECT: process.env.AUTO_RECONNECT !== "false",
+  LOG_LEVEL: process.env.LOG_LEVEL || "silent"
 };
