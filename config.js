@@ -14,7 +14,7 @@ module.exports = {
    * =========================
    */
   OWNER_NAME: "CODE-T OWNER",
-  OWNER_NUMBER: "255XXXXXXXXX", // replace with your number
+  OWNER_NUMBER: "255XXXXXXXXX",
   OWNER_JID: "255XXXXXXXXX@s.whatsapp.net",
 
   /**
@@ -23,9 +23,7 @@ module.exports = {
    * =========================
    */
   SESSION_NAME: "session",
-
-  // 🔐 IMPORTANT (ADD THIS)
-  SESSION_ID: process.env.SESSION_ID || "", // paste your base64 session here (eyJ...)
+  SESSION_ID: process.env.SESSION_ID || "",
 
   /**
    * =========================
@@ -44,6 +42,19 @@ module.exports = {
    */
   PUBLIC_MODE: true,
   AUTO_READ_MESSAGES: true,
+
+  /**
+   * =========================
+   * ⚡ AUTO PRESENCE SYSTEM
+   * =========================
+   */
+  AUTO_PRESENCE: true,
+
+  // typing | online | recording | off
+  PRESENCE_TYPE: "typing",
+
+  // delay before triggering presence again (ms)
+  PRESENCE_COOLDOWN: 4000,
 
   /**
    * =========================
