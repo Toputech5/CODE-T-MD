@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const pino = require("pino");
+const express = require("express");
 
 const config = require("./config");
 
@@ -24,18 +25,17 @@ async function loadSession() {
 
   const credsPath = path.join(sessionPath, "creds.json");
 
-  // Skip if already exists
   if (fs.existsSync(credsPath)) return;
 
   if (!config.SESSION_ID) {
-    console.log("❌ No SESSION_ID found in config.js");
+    console.log("❌ No SESSION_ID found");
     return;
   }
 
   try {
     const decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf-8");
     fs.writeFileSync(credsPath, decoded);
-    console.log("✅ Base64 session loaded successfully");
+    console.log("✅ Base64 session loaded");
   } catch (err) {
     console.log("❌ Invalid SESSION_ID", err);
   }
@@ -43,20 +43,18 @@ async function loadSession() {
 
 /**
  * =========================
- * PLUGIN LOADER (FAST MAP)
+ * PLUGIN LOADER
  * =========================
  */
 function loadPlugins() {
   const pluginMap = new Map();
-
   const pluginDir = path.join(__dirname, "plugins");
 
   if (!fs.existsSync(pluginDir)) {
     fs.mkdirSync(pluginDir);
   }
 
-  const files = fs.readdirSync(pluginDir)
-    .filter(f => f.endsWith(".js"));
+  const files = fs.readdirSync(pluginDir).filter(f => f.endsWith(".js"));
 
   for (let file of files) {
     try {
@@ -78,8 +76,6 @@ function loadPlugins() {
  * =========================
  */
 async function startBot() {
-
-  // 🔐 Load Base64 session before connecting
   await loadSession();
 
   const { state, saveCreds } = await useMultiFileAuthState(
@@ -88,7 +84,7 @@ async function startBot() {
 
   const sock = makeWASocket({
     auth: state,
-    logger: pino({ level: config.LOG_LEVEL || "silent" }),
+    logger: pino({ level: "info" }), // DEBUG ON
     printQRInTerminal: false,
     browser: ["CODE-T MD", "Chrome", "1.0.0"]
   });
@@ -113,11 +109,15 @@ async function startBot() {
     }
 
     if (connection === "close") {
-      const reason = lastDisconnect?.error?.output?.statusCode;
+      const error = lastDisconnect?.error;
+      const reason = error?.output?.statusCode;
+
+      console.log("❌ Disconnected reason:", reason);
+      console.log("❌ Full error:", error);
 
       if (reason !== DisconnectReason.loggedOut) {
-        console.log("♻️ Reconnecting CODE-T MD...");
-        startBot();
+        console.log("♻️ Reconnecting in 5 seconds...");
+        setTimeout(() => startBot(), 5000);
       } else {
         console.log("❌ Logged out. Update SESSION_ID.");
       }
@@ -130,68 +130,72 @@ async function startBot() {
    * =========================
    */
   sock.ev.on("messages.upsert", async ({ messages }) => {
-    for (let msg of messages) {
-      if (!msg.message) continue;
+    try {
+      for (let msg of messages) {
+        if (!msg.message) continue;
 
-      const jid = msg.key.remoteJid;
+        const jid = msg.key.remoteJid;
 
-      const body =
-        msg.message.conversation ||
-        msg.message.extendedTextMessage?.text ||
-        "";
+        const body =
+          msg.message.conversation ||
+          msg.message.extendedTextMessage?.text ||
+          "";
 
-      /**
-       * =========================
-       * STATUS SYSTEM
-       * =========================
-       */
-      if (jid === "status@broadcast") {
-        try {
-          if (config.AUTO_STATUS_VIEW || config.AUTO_STATUS_READ) {
-            await sock.readMessages([msg.key]);
+        /**
+         * =========================
+         * STATUS SYSTEM
+         * =========================
+         */
+        if (jid === "status@broadcast") {
+          try {
+            if (config.AUTO_STATUS_VIEW || config.AUTO_STATUS_READ) {
+              await sock.readMessages([msg.key]);
+            }
+
+            if (config.AUTO_STATUS_LIKE) {
+              await sock.sendMessage(jid, {
+                react: {
+                  text: config.STATUS_REACTION || "🔥",
+                  key: msg.key
+                }
+              });
+            }
+          } catch (e) {
+            console.log("Status error:", e);
           }
+          continue;
+        }
 
-          if (config.AUTO_STATUS_LIKE) {
+        /**
+         * =========================
+         * COMMAND HANDLER
+         * =========================
+         */
+        if (!body.startsWith(config.PREFIX)) continue;
+
+        const args = body.slice(config.PREFIX.length).trim().split(" ");
+        const command = args.shift().toLowerCase();
+
+        const plugin = plugins.get(command);
+
+        if (plugin) {
+          try {
+            await plugin.run(sock, msg, {
+              from: jid,
+              args,
+              body,
+              command
+            });
+          } catch (err) {
+            console.log("Command error:", err);
             await sock.sendMessage(jid, {
-              react: {
-                text: config.STATUS_REACTION || "🔥",
-                key: msg.key
-              }
+              text: "⚠️ Error executing command."
             });
           }
-        } catch (e) {
-          console.log("Status error:", e);
-        }
-        continue;
-      }
-
-      /**
-       * =========================
-       * COMMAND HANDLER
-       * =========================
-       */
-      if (!body.startsWith(config.PREFIX)) continue;
-
-      const args = body.slice(config.PREFIX.length).trim().split(" ");
-      const command = args.shift().toLowerCase();
-
-      const plugin = plugins.get(command);
-
-      if (plugin) {
-        try {
-          await plugin.run(sock, msg, {
-            from: jid,
-            args,
-            body,
-            command
-          });
-        } catch (err) {
-          console.log("Command error:", err);
-          await sock.sendMessage(jid, {
-            text: "⚠️ Error executing command."
-          });
         }
       }
+    } catch (err) {
+      console.log("💥 MESSAGE CRASH:", err);
     }
   });
 }
@@ -202,3 +206,19 @@ async function startBot() {
  * =========================
  */
 startBot();
+
+/**
+ * =========================
+ * EXPRESS SERVER (RENDER FIX)
+ * =========================
+ */
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get("/", (req, res) => {
+  res.send("CODE-T MD is running 🚀");
+});
+
+app.listen(PORT, () => {
+  console.log("🌐 Server running on port", PORT);
+});
