@@ -1,0 +1,80 @@
+{
+  "name": "CODE-T-MD",
+  "description": "CODE-T MD is a powerful WhatsApp Multi-Device bot with smart automation, plugin support, and AI-like presence system.",
+  "repository": "https://github.com/Toputech5/CODE-T-MD",
+  "keywords": ["whatsapp", "bot", "baileys", "md", "automation"],
+  "env": {
+    "SESSION_ID": {
+      "description": "Base64 encoded WhatsApp session string (required to login without QR).",
+      "required": true
+    },
+    "BOT_NAME": {
+      "description": "Name of your bot displayed in messages.",
+      "value": "CODE-T MD"
+    },
+    "PREFIX": {
+      "description": "Command prefix used to trigger bot commands.",
+      "value": "."
+    },
+    "OWNER_NAME": {
+      "description": "Name of the bot owner.",
+      "value": "CODE-T OWNER"
+    },
+    "OWNER_NUMBER": {
+      "description": "Owner phone number in international format (no + sign).",
+      "value": "255XXXXXXXXX"
+    },
+    "OWNER_JID": {
+      "description": "Owner WhatsApp JID (number@s.whatsapp.net).",
+      "value": "255XXXXXXXXX@s.whatsapp.net"
+    },
+    "AUTO_PRESENCE": {
+      "description": "Enable or disable automatic presence system (online, typing, recording).",
+      "value": "true"
+    },
+    "PRESENCE_TYPE": {
+      "description": "Type of presence: typing | online | recording | ai_human.",
+      "value": "typing"
+    },
+    "PRESENCE_COOLDOWN": {
+      "description": "Delay (in milliseconds) before triggering presence again.",
+      "value": "4000"
+    },
+    "AUTO_STATUS_VIEW": {
+      "description": "Automatically view WhatsApp status updates.",
+      "value": "true"
+    },
+    "AUTO_STATUS_READ": {
+      "description": "Automatically mark status as read.",
+      "value": "true"
+    },
+    "AUTO_STATUS_LIKE": {
+      "description": "Automatically react to status updates.",
+      "value": "true"
+    },
+    "STATUS_REACTION": {
+      "description": "Emoji used to react to status updates.",
+      "value": "🔥"
+    },
+    "PUBLIC_MODE": {
+      "description": "Allow everyone to use the bot (true) or restrict to owner only (false).",
+      "value": "true"
+    },
+    "AUTO_READ_MESSAGES": {
+      "description": "Automatically mark incoming messages as read.",
+      "value": "true"
+    },
+    "ANTI_LINK": {
+      "description": "Enable anti-link protection in chats/groups.",
+      "value": "false"
+    },
+    "ANTI_SPAM": {
+      "description": "Enable anti-spam protection system.",
+      "value": "false"
+    },
+    "LOG_LEVEL": {
+      "description": "Logging level (silent | info | debug).",
+      "value": "silent"
+    }
+  }
+}
