@@ -70,12 +70,25 @@ function loadPlugins() {
 
 /**
  * =========================
- * AUTO PRESENCE SYSTEM (CONFIG DRIVEN)
+ * PRESENCE SYSTEM
  * =========================
  */
 const presenceCooldown = new Map();
 
-async function autoPresence(sock, jid) {
+/**
+ * 🟢 ALWAYS ONLINE
+ */
+async function keepOnline(sock, jid) {
+  try {
+    if (!config.AUTO_PRESENCE) return;
+    await sock.sendPresenceUpdate("available", jid);
+  } catch (e) {}
+}
+
+/**
+ * ⌨️ 6 SECOND HUMAN PRESENCE EFFECT
+ */
+async function presenceEffect(sock, jid) {
   try {
     if (!config.AUTO_PRESENCE) return;
 
@@ -85,29 +98,23 @@ async function autoPresence(sock, jid) {
     if (now - last < (config.PRESENCE_COOLDOWN || 4000)) return;
     presenceCooldown.set(jid, now);
 
-    const type = config.PRESENCE_TYPE || "typing";
+    const mode = config.PRESENCE_TYPE;
 
+    // Always start online
     await sock.sendPresenceUpdate("available", jid);
 
-    if (type === "typing") {
+    if (mode === "typing" || mode === "ai_human") {
       await sock.sendPresenceUpdate("composing", jid);
-
-      setTimeout(() => {
-        sock.sendPresenceUpdate("paused", jid).catch(() => {});
-      }, 1200);
     }
 
-    if (type === "online") {
-      await sock.sendPresenceUpdate("available", jid);
-    }
-
-    if (type === "recording") {
+    if (mode === "recording") {
       await sock.sendPresenceUpdate("recording", jid);
-
-      setTimeout(() => {
-        sock.sendPresenceUpdate("paused", jid).catch(() => {});
-      }, 1500);
     }
+
+    // 🔥 6 seconds human effect
+    setTimeout(() => {
+      sock.sendPresenceUpdate("available", jid).catch(() => {});
+    }, 6000);
 
   } catch (e) {
     console.log("Presence error:", e);
@@ -146,13 +153,16 @@ async function startBot() {
   /**
    * CONNECTION HANDLER
    */
-  sock.ev.on("connection.update", (update) => {
+  sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect } = update;
 
     if (connection === "open") {
       console.log("✅ CODE-T MD CONNECTED");
 
-      sock.sendPresenceUpdate("available");
+      if (config.AUTO_PRESENCE) {
+        await sock.sendPresenceUpdate("available");
+        console.log("🟢 Bot ONLINE (AUTO_PRESENCE enabled)");
+      }
     }
 
     if (connection === "close") {
@@ -189,9 +199,10 @@ async function startBot() {
         if (jid === "status@broadcast") continue;
 
         /**
-         * 🔥 AUTO PRESENCE TRIGGER
+         * 🔥 PRESENCE SYSTEM TRIGGER
          */
-        autoPresence(sock, jid);
+        keepOnline(sock, jid);      // always online
+        presenceEffect(sock, jid);  // 6 sec human effect
 
         /**
          * STATUS SYSTEM
