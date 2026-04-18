@@ -7,25 +7,19 @@ const config = require("./config");
 
 const {
   default: makeWASocket,
-  useMultiFileAuthState,
+  useSingleFileAuthState,
   DisconnectReason
 } = require("@whiskeysockets/baileys");
 
 /**
  * =========================
- * BASE64 SESSION LOADER
+ * LOAD BASE64 SESSION
  * =========================
  */
-async function loadSession() {
-  const sessionPath = path.join(__dirname, "session");
+function loadSession() {
+  const sessionFile = path.join(__dirname, "session.json");
 
-  if (!fs.existsSync(sessionPath)) {
-    fs.mkdirSync(sessionPath);
-  }
-
-  const credsPath = path.join(sessionPath, "creds.json");
-
-  if (fs.existsSync(credsPath)) return;
+  if (fs.existsSync(sessionFile)) return;
 
   if (!config.SESSION_ID) {
     console.log("❌ No SESSION_ID found");
@@ -34,8 +28,8 @@ async function loadSession() {
 
   try {
     const decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf-8");
-    fs.writeFileSync(credsPath, decoded);
-    console.log("✅ Base64 session loaded");
+    fs.writeFileSync(sessionFile, decoded);
+    console.log("✅ Session loaded from Base64");
   } catch (err) {
     console.log("❌ Invalid SESSION_ID", err);
   }
@@ -43,7 +37,7 @@ async function loadSession() {
 
 /**
  * =========================
- * PLUGIN LOADER
+ * LOAD PLUGINS
  * =========================
  */
 function loadPlugins() {
@@ -72,19 +66,18 @@ function loadPlugins() {
 
 /**
  * =========================
- * BOT START FUNCTION
+ * START BOT
  * =========================
  */
 async function startBot() {
-  await loadSession();
 
-  const { state, saveCreds } = await useMultiFileAuthState(
-    path.join(__dirname, "session")
-  );
+  loadSession();
+
+  const { state, saveState } = useSingleFileAuthState("./session.json");
 
   const sock = makeWASocket({
     auth: state,
-    logger: pino({ level: "info" }), // DEBUG ON
+    logger: pino({ level: "info" }),
     printQRInTerminal: false,
     browser: ["CODE-T MD", "Chrome", "1.0.0"]
   });
@@ -96,7 +89,7 @@ async function startBot() {
   /**
    * SAVE SESSION
    */
-  sock.ev.on("creds.update", saveCreds);
+  sock.ev.on("creds.update", saveState);
 
   /**
    * CONNECTION HANDLER
@@ -112,14 +105,14 @@ async function startBot() {
       const error = lastDisconnect?.error;
       const reason = error?.output?.statusCode;
 
-      console.log("❌ Disconnected reason:", reason);
+      console.log("❌ Disconnected:", reason);
       console.log("❌ Full error:", error);
 
       if (reason !== DisconnectReason.loggedOut) {
         console.log("♻️ Reconnecting in 5 seconds...");
         setTimeout(() => startBot(), 5000);
       } else {
-        console.log("❌ Logged out. Update SESSION_ID.");
+        console.log("❌ Logged out. Generate new SESSION_ID");
       }
     }
   });
@@ -142,9 +135,7 @@ async function startBot() {
           "";
 
         /**
-         * =========================
          * STATUS SYSTEM
-         * =========================
          */
         if (jid === "status@broadcast") {
           try {
@@ -167,9 +158,7 @@ async function startBot() {
         }
 
         /**
-         * =========================
-         * COMMAND HANDLER
-         * =========================
+         * COMMAND SYSTEM
          */
         if (!body.startsWith(config.PREFIX)) continue;
 
@@ -209,7 +198,7 @@ startBot();
 
 /**
  * =========================
- * EXPRESS SERVER (RENDER FIX)
+ * EXPRESS SERVER (RENDER)
  * =========================
  */
 const app = express();
