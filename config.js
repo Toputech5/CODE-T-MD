@@ -27,6 +27,14 @@ module.exports = {
 
   /**
    * =========================
+   * HEROKU SETTINGS (NEW)
+   * =========================
+   */
+  HEROKU_API_KEY: process.env.HEROKU_API_KEY || "",
+  HEROKU_APP_NAME: process.env.HEROKU_APP_NAME || "",
+
+  /**
+   * =========================
    * STATUS SYSTEM
    * =========================
    */
@@ -50,9 +58,7 @@ module.exports = {
    */
   AUTO_PRESENCE: process.env.AUTO_PRESENCE === "true",
 
-  // typing | online | recording | ai_human
   PRESENCE_TYPE: process.env.PRESENCE_TYPE || "typing",
-
   PRESENCE_COOLDOWN: Number(process.env.PRESENCE_COOLDOWN) || 4000,
 
   /**
