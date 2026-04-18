@@ -7,19 +7,22 @@ const config = require("./config");
 
 const {
   default: makeWASocket,
-  useSingleFileAuthState,
-  DisconnectReason
+  DisconnectReason,
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion
 } = require("@whiskeysockets/baileys");
 
 /**
  * =========================
- * LOAD BASE64 SESSION
+ * SESSION LOADER (BASE64)
  * =========================
  */
 function loadSession() {
-  const sessionFile = path.join(__dirname, "session.json");
+  const sessionDir = path.join(__dirname, "sessions");
+  const credsPath = path.join(sessionDir, "creds.json");
 
-  if (fs.existsSync(sessionFile)) return;
+  if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir);
+  if (fs.existsSync(credsPath)) return;
 
   if (!config.SESSION_ID) {
     console.log("❌ No SESSION_ID found");
@@ -28,7 +31,7 @@ function loadSession() {
 
   try {
     const decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf-8");
-    fs.writeFileSync(sessionFile, decoded);
+    fs.writeFileSync(credsPath, decoded);
     console.log("✅ Session loaded from Base64");
   } catch (err) {
     console.log("❌ Invalid SESSION_ID", err);
@@ -37,31 +40,78 @@ function loadSession() {
 
 /**
  * =========================
- * LOAD PLUGINS
+ * PLUGINS LOADER
  * =========================
  */
 function loadPlugins() {
   const pluginMap = new Map();
   const pluginDir = path.join(__dirname, "plugins");
 
-  if (!fs.existsSync(pluginDir)) {
-    fs.mkdirSync(pluginDir);
-  }
+  if (!fs.existsSync(pluginDir)) fs.mkdirSync(pluginDir);
 
   const files = fs.readdirSync(pluginDir).filter(f => f.endsWith(".js"));
 
   for (let file of files) {
     try {
+      delete require.cache[require.resolve(`./plugins/${file}`)];
       const plugin = require(`./plugins/${file}`);
+
       if (plugin.command && plugin.run) {
         pluginMap.set(plugin.command, plugin);
+        console.log("🧩 Loaded plugin:", plugin.command);
       }
     } catch (e) {
-      console.log("Plugin load error:", file, e);
+      console.log("Plugin error:", file, e);
     }
   }
 
   return pluginMap;
+}
+
+/**
+ * =========================
+ * AUTO PRESENCE SYSTEM (CONFIG DRIVEN)
+ * =========================
+ */
+const presenceCooldown = new Map();
+
+async function autoPresence(sock, jid) {
+  try {
+    if (!config.AUTO_PRESENCE) return;
+
+    const now = Date.now();
+    const last = presenceCooldown.get(jid) || 0;
+
+    if (now - last < (config.PRESENCE_COOLDOWN || 4000)) return;
+    presenceCooldown.set(jid, now);
+
+    const type = config.PRESENCE_TYPE || "typing";
+
+    await sock.sendPresenceUpdate("available", jid);
+
+    if (type === "typing") {
+      await sock.sendPresenceUpdate("composing", jid);
+
+      setTimeout(() => {
+        sock.sendPresenceUpdate("paused", jid).catch(() => {});
+      }, 1200);
+    }
+
+    if (type === "online") {
+      await sock.sendPresenceUpdate("available", jid);
+    }
+
+    if (type === "recording") {
+      await sock.sendPresenceUpdate("recording", jid);
+
+      setTimeout(() => {
+        sock.sendPresenceUpdate("paused", jid).catch(() => {});
+      }, 1500);
+    }
+
+  } catch (e) {
+    console.log("Presence error:", e);
+  }
 }
 
 /**
@@ -73,12 +123,14 @@ async function startBot() {
 
   loadSession();
 
-  const { state, saveState } = useSingleFileAuthState("./session.json");
+  const { state, saveCreds } = await useMultiFileAuthState("./sessions");
+  const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
     auth: state,
-    logger: pino({ level: "info" }),
+    logger: pino({ level: "silent" }),
     printQRInTerminal: false,
+    version,
     browser: ["CODE-T MD", "Chrome", "1.0.0"]
   });
 
@@ -89,7 +141,7 @@ async function startBot() {
   /**
    * SAVE SESSION
    */
-  sock.ev.on("creds.update", saveState);
+  sock.ev.on("creds.update", saveCreds);
 
   /**
    * CONNECTION HANDLER
@@ -99,20 +151,20 @@ async function startBot() {
 
     if (connection === "open") {
       console.log("✅ CODE-T MD CONNECTED");
+
+      sock.sendPresenceUpdate("available");
     }
 
     if (connection === "close") {
-      const error = lastDisconnect?.error;
-      const reason = error?.output?.statusCode;
+      const reason = lastDisconnect?.error?.output?.statusCode;
 
       console.log("❌ Disconnected:", reason);
-      console.log("❌ Full error:", error);
 
       if (reason !== DisconnectReason.loggedOut) {
-        console.log("♻️ Reconnecting in 5 seconds...");
-        setTimeout(() => startBot(), 5000);
+        console.log("♻️ Reconnecting...");
+        setTimeout(startBot, 4000);
       } else {
-        console.log("❌ Logged out. Generate new SESSION_ID");
+        console.log("❌ Logged out. Regenerate SESSION_ID.");
       }
     }
   });
@@ -123,8 +175,8 @@ async function startBot() {
    * =========================
    */
   sock.ev.on("messages.upsert", async ({ messages }) => {
-    try {
-      for (let msg of messages) {
+    for (let msg of messages) {
+      try {
         if (!msg.message) continue;
 
         const jid = msg.key.remoteJid;
@@ -134,25 +186,28 @@ async function startBot() {
           msg.message.extendedTextMessage?.text ||
           "";
 
+        if (jid === "status@broadcast") continue;
+
+        /**
+         * 🔥 AUTO PRESENCE TRIGGER
+         */
+        autoPresence(sock, jid);
+
         /**
          * STATUS SYSTEM
          */
         if (jid === "status@broadcast") {
-          try {
-            if (config.AUTO_STATUS_VIEW || config.AUTO_STATUS_READ) {
-              await sock.readMessages([msg.key]);
-            }
+          if (config.AUTO_STATUS_VIEW || config.AUTO_STATUS_READ) {
+            await sock.readMessages([msg.key]);
+          }
 
-            if (config.AUTO_STATUS_LIKE) {
-              await sock.sendMessage(jid, {
-                react: {
-                  text: config.STATUS_REACTION || "🔥",
-                  key: msg.key
-                }
-              });
-            }
-          } catch (e) {
-            console.log("Status error:", e);
+          if (config.AUTO_STATUS_LIKE) {
+            await sock.sendMessage(jid, {
+              react: {
+                text: config.STATUS_REACTION || "🔥",
+                key: msg.key
+              }
+            });
           }
           continue;
         }
@@ -168,23 +223,17 @@ async function startBot() {
         const plugin = plugins.get(command);
 
         if (plugin) {
-          try {
-            await plugin.run(sock, msg, {
-              from: jid,
-              args,
-              body,
-              command
-            });
-          } catch (err) {
-            console.log("Command error:", err);
-            await sock.sendMessage(jid, {
-              text: "⚠️ Error executing command."
-            });
-          }
+          await plugin.run(sock, msg, {
+            from: jid,
+            args,
+            body,
+            command
+          });
         }
+
+      } catch (err) {
+        console.log("💥 MESSAGE ERROR:", err);
       }
-    } catch (err) {
-      console.log("💥 MESSAGE CRASH:", err);
     }
   });
 }
