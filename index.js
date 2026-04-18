@@ -2,8 +2,10 @@ const fs = require("fs");
 const path = require("path");
 const pino = require("pino");
 const express = require("express");
-
+const axios = require("axios");
 const config = require("./config");
+
+require("events").EventEmitter.defaultMaxListeners = 500;
 
 const {
   default: makeWASocket,
@@ -14,7 +16,7 @@ const {
 
 /**
  * =========================
- * SESSION LOADER (BASE64)
+ * SESSION LOADER
  * =========================
  */
 function loadSession() {
@@ -32,15 +34,15 @@ function loadSession() {
   try {
     const decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf-8");
     fs.writeFileSync(credsPath, decoded);
-    console.log("✅ Session loaded from Base64");
-  } catch (err) {
-    console.log("❌ Invalid SESSION_ID", err);
+    console.log("✅ Session loaded");
+  } catch {
+    console.log("❌ Invalid SESSION_ID");
   }
 }
 
 /**
  * =========================
- * PLUGINS LOADER
+ * PLUGIN LOADER
  * =========================
  */
 function loadPlugins() {
@@ -58,10 +60,10 @@ function loadPlugins() {
 
       if (plugin.command && plugin.run) {
         pluginMap.set(plugin.command, plugin);
-        console.log("🧩 Loaded plugin:", plugin.command);
+        console.log("🧩 Loaded:", plugin.command);
       }
     } catch (e) {
-      console.log("Plugin error:", file, e);
+      console.log("❌ Plugin error:", file);
     }
   }
 
@@ -70,25 +72,12 @@ function loadPlugins() {
 
 /**
  * =========================
- * PRESENCE SYSTEM
+ * PRESENCE SYSTEM (LIGHT + FAST)
  * =========================
  */
 const presenceCooldown = new Map();
 
-/**
- * 🟢 ALWAYS ONLINE
- */
-async function keepOnline(sock, jid) {
-  try {
-    if (!config.AUTO_PRESENCE) return;
-    await sock.sendPresenceUpdate("available", jid);
-  } catch (e) {}
-}
-
-/**
- * ⌨️ 6 SECOND HUMAN PRESENCE EFFECT
- */
-async function presenceEffect(sock, jid) {
+function presenceEffect(sock, jid) {
   try {
     if (!config.AUTO_PRESENCE) return;
 
@@ -98,27 +87,18 @@ async function presenceEffect(sock, jid) {
     if (now - last < (config.PRESENCE_COOLDOWN || 4000)) return;
     presenceCooldown.set(jid, now);
 
-    const mode = config.PRESENCE_TYPE;
-
-    // Always start online
-    await sock.sendPresenceUpdate("available", jid);
-
-    if (mode === "typing" || mode === "ai_human") {
-      await sock.sendPresenceUpdate("composing", jid);
-    }
-
-    if (mode === "recording") {
-      await sock.sendPresenceUpdate("recording", jid);
-    }
-
-    // 🔥 6 seconds human effect
+    // non-blocking
     setTimeout(() => {
-      sock.sendPresenceUpdate("available", jid).catch(() => {});
-    }, 6000);
+      if (config.PRESENCE_TYPE === "typing") {
+        sock.sendPresenceUpdate("composing", jid).catch(() => {});
+      } else if (config.PRESENCE_TYPE === "recording") {
+        sock.sendPresenceUpdate("recording", jid).catch(() => {});
+      } else {
+        sock.sendPresenceUpdate("available", jid).catch(() => {});
+      }
+    }, 100);
 
-  } catch (e) {
-    console.log("Presence error:", e);
-  }
+  } catch {}
 }
 
 /**
@@ -126,7 +106,11 @@ async function presenceEffect(sock, jid) {
  * START BOT
  * =========================
  */
+let isStarting = false;
+
 async function startBot() {
+  if (isStarting) return;
+  isStarting = true;
 
   loadSession();
 
@@ -135,8 +119,7 @@ async function startBot() {
 
   const sock = makeWASocket({
     auth: state,
-    logger: pino({ level: "silent" }),
-    printQRInTerminal: false,
+    logger: pino({ level: config.LOG_LEVEL || "silent" }),
     version,
     browser: ["CODE-T MD", "Chrome", "1.0.0"]
   });
@@ -145,23 +128,16 @@ async function startBot() {
 
   console.log("⚡ CODE-T MD starting...");
 
-  /**
-   * SAVE SESSION
-   */
   sock.ev.on("creds.update", saveCreds);
 
-  /**
-   * CONNECTION HANDLER
-   */
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect } = update;
 
     if (connection === "open") {
-      console.log("✅ CODE-T MD CONNECTED");
+      console.log("✅ CONNECTED");
 
       if (config.AUTO_PRESENCE) {
-        await sock.sendPresenceUpdate("available");
-        console.log("🟢 Bot ONLINE (AUTO_PRESENCE enabled)");
+        sock.sendPresenceUpdate("available").catch(() => {});
       }
     }
 
@@ -170,63 +146,77 @@ async function startBot() {
 
       console.log("❌ Disconnected:", reason);
 
-      if (reason !== DisconnectReason.loggedOut) {
-        console.log("♻️ Reconnecting...");
-        setTimeout(startBot, 4000);
+      isStarting = false;
+
+      if (reason !== DisconnectReason.loggedOut && config.AUTO_RECONNECT) {
+        setTimeout(startBot, 5000);
       } else {
-        console.log("❌ Logged out. Regenerate SESSION_ID.");
+        console.log("❌ Session expired");
       }
     }
   });
 
   /**
    * =========================
-   * MESSAGE HANDLER
+   * MESSAGE HANDLER (FAST)
    * =========================
    */
   sock.ev.on("messages.upsert", async ({ messages }) => {
-    for (let msg of messages) {
+
+    await Promise.all(messages.map(async (msg) => {
       try {
-        if (!msg.message) continue;
+        if (!msg.message) return;
+        if (msg.key.fromMe) return;
 
         const jid = msg.key.remoteJid;
 
+        /**
+         * =========================
+         * STATUS SYSTEM (FIXED)
+         * =========================
+         */
+        if (jid === "status@broadcast") {
+
+          if (config.AUTO_STATUS_VIEW || config.AUTO_STATUS_READ) {
+            sock.readMessages([msg.key]).catch(() => {});
+          }
+
+          if (config.AUTO_STATUS_LIKE) {
+            sock.sendMessage(
+              jid,
+              {
+                react: {
+                  text: config.STATUS_REACTION || "🔥",
+                  key: msg.key
+                }
+              },
+              {
+                statusJidList: [msg.key.participant]
+              }
+            ).catch(() => {});
+          }
+
+          return;
+        }
+
+        /**
+         * NORMAL MESSAGE
+         */
         const body =
           msg.message.conversation ||
           msg.message.extendedTextMessage?.text ||
           "";
 
-        if (jid === "status@broadcast") continue;
+        // ⚡ fast presence
+        presenceEffect(sock, jid);
 
-        /**
-         * 🔥 PRESENCE SYSTEM TRIGGER
-         */
-        keepOnline(sock, jid);      // always online
-        presenceEffect(sock, jid);  // 6 sec human effect
-
-        /**
-         * STATUS SYSTEM
-         */
-        if (jid === "status@broadcast") {
-          if (config.AUTO_STATUS_VIEW || config.AUTO_STATUS_READ) {
-            await sock.readMessages([msg.key]);
-          }
-
-          if (config.AUTO_STATUS_LIKE) {
-            await sock.sendMessage(jid, {
-              react: {
-                text: config.STATUS_REACTION || "🔥",
-                key: msg.key
-              }
-            });
-          }
-          continue;
+        // 📩 auto read chats
+        if (config.AUTO_READ_MESSAGES) {
+          sock.readMessages([msg.key]).catch(() => {});
         }
 
-        /**
-         * COMMAND SYSTEM
-         */
-        if (!body.startsWith(config.PREFIX)) continue;
+        // ❌ not a command
+        if (!body.startsWith(config.PREFIX)) return;
 
         const args = body.slice(config.PREFIX.length).trim().split(" ");
         const command = args.shift().toLowerCase();
@@ -234,40 +224,60 @@ async function startBot() {
         const plugin = plugins.get(command);
 
         if (plugin) {
-          await plugin.run(sock, msg, {
+          // ⚡ non-blocking plugin execution
+          plugin.run(sock, msg, {
             from: jid,
             args,
-            body,
-            command
-          });
+            command,
+            body
+          }).catch(console.error);
         }
 
       } catch (err) {
-        console.log("💥 MESSAGE ERROR:", err);
+        console.log("💥 Error:", err);
       }
-    }
+    }));
+
   });
 }
 
 /**
  * =========================
- * START BOT
+ * GLOBAL ERROR PROTECTION
  * =========================
+ */
+process.on("uncaughtException", console.error);
+process.on("unhandledRejection", console.error);
+
+/**
+ * START BOT
  */
 startBot();
 
 /**
  * =========================
- * EXPRESS SERVER (RENDER)
+ * EXPRESS SERVER (KEEP ALIVE)
  * =========================
  */
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
-  res.send("CODE-T MD is running 🚀");
+  res.send("CODE-T MD running 🚀");
 });
 
 app.listen(PORT, () => {
   console.log("🌐 Server running on port", PORT);
 });
+
+/**
+ * =========================
+ * SELF PING (ANTI-SLEEP)
+ * =========================
+ */
+setInterval(async () => {
+  try {
+    await axios.get(`http://localhost:${PORT}`);
+    console.log("🔄 Self ping");
+  } catch {}
+}, 1000 * 60 * 5);
