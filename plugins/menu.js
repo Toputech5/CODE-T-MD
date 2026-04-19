@@ -1,48 +1,74 @@
-const fs = require("fs");
-const path = require("path");
-const config = require("../config");
+const { bold } = require("../lib/utils");
 
 module.exports = {
-  command: "menu",
+  cmd: "menu",
+  aliases: ["help", "list", "commands"],
 
-  run: async (sock, msg, { from }) => {
+  run: async ({ sock, msg, from, config }) => {
     try {
-      const pluginDir = path.join(__dirname);
-      const files = fs.readdirSync(pluginDir).filter(f => f.endsWith(".js"));
 
-      let commands = [];
-
-      for (let file of files) {
-        try {
-          const plugin = require(`./${file}`);
-          if (plugin.command) {
-            commands.push(plugin.command);
-          }
-        } catch {}
+      // 🧠 GET AMD INSTANCE
+      const amd = global.amd;
+      if (!amd) {
+        return sock.sendMessage(from, {
+          text: "❌ Menu system not linked to AMD loader."
+        });
       }
 
-      commands = commands.sort();
+      // 📦 GET COMMANDS FROM AMD
+      const plugins = amd.plugins || new Map();
+      const aliases = amd.aliases || new Map();
 
-      const menuText = `
-╔═〘 ⚡ ${config.BOT_NAME} 〙═╗
-║
-║ 👤 Owner: ${config.OWNER_NAME}
-║ 🔧 Mode: ${config.PUBLIC_MODE ? "Public" : "Private"}
-║ ⚙️ Prefix: ${config.PREFIX}
-║ 📦 Commands: ${commands.length}
-║
-╠═〘 📜 COMMAND LIST 〙═╝
-${commands.map(cmd => `║ ➤ ${config.PREFIX}${cmd}`).join("\n")}
-║
-╚═══════════════════╝
-      `.trim();
+      let cmdList = [];
 
+      for (let [cmd, plugin] of plugins.entries()) {
+        if (!cmd) continue;
+
+        // optional: hide system/internal commands
+        if (plugin.hidden === true) continue;
+
+        cmdList.push(cmd);
+      }
+
+      // remove duplicates from aliases
+      for (let [alias, real] of aliases.entries()) {
+        if (real && !cmdList.includes(alias)) {
+          cmdList.push(alias);
+        }
+      }
+
+      cmdList = [...new Set(cmdList)].sort();
+
+      // 🧾 FORMAT MENU
+      let menu = `
+╭───〔 🤖 CODE-T-MD MENU 〕───╮
+│ 👤 User: ${msg.pushName || "User"}
+│ ⚡ Commands: ${cmdList.length}
+╰─────────────────────────────╯
+
+📌 *AVAILABLE COMMANDS*
+`;
+
+      let count = 1;
+      for (let cmd of cmdList) {
+        menu += `\n${count++}. ${cmd}`;
+      }
+
+      menu += `
+
+╭─────────────────────────────╮
+│ ⚡ Powered by AMD Engine
+│ 🧠 Auto-loaded system
+╰─────────────────────────────╯
+`;
+
+      // 📤 SEND MENU
       await sock.sendMessage(from, {
-        text: menuText
-      });
+        text: menu
+      }, { quoted: msg });
 
     } catch (err) {
-      console.log("Menu error:", err);
+      console.log("❌ Menu error:", err);
 
       await sock.sendMessage(from, {
         text: "❌ Failed to load menu."
