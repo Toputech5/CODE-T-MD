@@ -1,6 +1,6 @@
 {
   "name": "code-t-md",
-  "version": "2.6.1",
+  "version": "2.6.2",
   "description": "Multi-device WhatsApp bot by Toputech",
   "main": "index.js",
   "type": "commonjs",
@@ -65,13 +65,13 @@
 
     "wa-sticker-formatter": "^4.4.0",
 
-    "youtubei.js": "^7.2.0",
+    "youtubei.js": "^7.0.0",
     "ytdl-core": "^4.11.5"
   },
   "devDependencies": {
     "pino": "^8.0.0"
   },
   "engines": {
-    "node": ">=18.x"
+    "node": "20.x"
   }
 }
