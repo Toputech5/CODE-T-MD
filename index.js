@@ -1,10 +1,26 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require("@whiskeysockets/baileys");
-const express = require("express");
+const fs = require("fs");
 const path = require("path");
+const express = require("express");
+
+const {
+  default: makeWASocket,
+  useMultiFileAuthState,
+  DisconnectReason
+} = require("@whiskeysockets/baileys");
 
 const config = require("./config");
 const Logger = require("./lib/logger");
 const AMD = require("./lib/amd");
+
+/* =========================
+   🔥 CRASH PROTECTION
+========================= */
+process.on("uncaughtException", (err) => {
+  console.log("❌ Uncaught:", err);
+});
+process.on("unhandledRejection", (err) => {
+  console.log("❌ Rejection:", err);
+});
 
 /* =========================
    🌐 KEEP ALIVE SERVER
@@ -12,30 +28,47 @@ const AMD = require("./lib/amd");
 const app = express();
 
 app.get("/", (req, res) => {
-  res.send(`${config.BOT_NAME} is running ⚡`);
+  res.send(`${config.BOT_NAME} is alive 🚀`);
 });
 
-app.listen(process.env.PORT || 8000, () => {
-  Logger.info(`Server running on PORT ${process.env.PORT || 8000}`);
+app.listen(process.env.PORT || 8000, "0.0.0.0", () => {
+  Logger.info(`Server running on ${process.env.PORT || 8000}`);
 });
 
 /* =========================
-   🤖 START BOT ENGINE
+   🔐 SESSION FIX (BASE64)
+========================= */
+function loadSession() {
+  if (!config.SESSION_ID) return;
+
+  try {
+    const data = Buffer.from(config.SESSION_ID, "base64").toString("utf-8");
+
+    if (!fs.existsSync("./sessions")) {
+      fs.mkdirSync("./sessions");
+    }
+
+    fs.writeFileSync("./sessions/creds.json", data);
+    Logger.success("Session loaded from SESSION_ID");
+  } catch (e) {
+    Logger.error("Invalid SESSION_ID");
+  }
+}
+
+/* =========================
+   🤖 START BOT
 ========================= */
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState(
-    config.SESSION_NAME
-  );
+  loadSession();
+
+  const { state, saveCreds } = await useMultiFileAuthState("./sessions");
 
   const sock = makeWASocket({
     auth: state,
-    printQRInTerminal: true,
-    browser: [config.BOT_NAME, "Chrome", "1.0.0"]
+    printQRInTerminal: !config.SESSION_ID,
+    browser: [config.BOT_NAME, "Heroku", "1.0.0"]
   });
 
-  /* =========================
-     🧠 AMD CORE ENGINE
-  ========================= */
   const amd = new AMD(sock, config);
   global.amd = amd;
 
@@ -46,17 +79,18 @@ async function startBot() {
      💬 MESSAGE HANDLER
   ========================= */
   sock.ev.on("messages.upsert", async ({ messages }) => {
-    for (let msg of messages) {
-      try {
-        if (config.AUTO_READ_MESSAGES) {
-          await sock.readMessages([msg.key]);
-        }
+    const msg = messages[0];
+    if (!msg) return;
 
-        await amd.handleMessage(msg);
-
-      } catch (err) {
-        Logger.error("Message error: " + err.message);
+    try {
+      if (config.AUTO_READ_MESSAGES) {
+        await sock.readMessages([msg.key]);
       }
+
+      await amd.handleMessage(msg);
+
+    } catch (e) {
+      Logger.error("Message error: " + e.message);
     }
   });
 
@@ -74,41 +108,17 @@ async function startBot() {
       if (config.AUTO_STATUS_LIKE) {
         await sock.sendMessage(msg.key.remoteJid, {
           react: {
-            text: config.STATUS_REACTION,
+            text: config.STATUS_REACTION || "🔥",
             key: msg.key
           }
         });
       }
 
-    } catch (e) {
-      Logger.warn("Status error");
-    }
+    } catch (e) {}
   });
 
   /* =========================
-     ⚡ PRESENCE SYSTEM
-  ========================= */
-  if (config.AUTO_PRESENCE) {
-    sock.ev.on("messages.upsert", async ({ messages }) => {
-      const msg = messages[0];
-      const jid = msg.key.remoteJid;
-
-      try {
-        await sock.sendPresenceUpdate("available", jid);
-
-        setInterval(async () => {
-          await sock.sendPresenceUpdate(
-            config.PRESENCE_TYPE || "typing",
-            jid
-          );
-        }, config.PRESENCE_COOLDOWN);
-
-      } catch (e) {}
-    });
-  }
-
-  /* =========================
-     🔐 SAVE SESSION
+     🔐 SAVE CREDS
   ========================= */
   sock.ev.on("creds.update", saveCreds);
 
@@ -126,17 +136,18 @@ async function startBot() {
       const reason =
         lastDisconnect?.error?.output?.statusCode;
 
-      Logger.warn("Connection closed, restarting...");
+      Logger.warn("Connection closed");
 
-      if (config.AUTO_RECONNECT && reason !== DisconnectReason.loggedOut) {
-        setTimeout(startBot, 3000);
+      if (
+        config.AUTO_RECONNECT &&
+        reason !== DisconnectReason.loggedOut
+      ) {
+        setTimeout(startBot, 4000);
       } else {
-        Logger.error("Logged out. Delete session & rescan QR.");
+        Logger.error("Logged out. Reconnect manually.");
       }
     }
   });
-
-  return sock;
 }
 
 /* =========================
