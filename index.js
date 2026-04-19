@@ -14,14 +14,14 @@ const Logger = require("./lib/logger");
 const AMD = require("./lib/amd");
 
 /* =========================
-   🧯 GLOBAL CRASH GUARD
+   🧯 GLOBAL SAFETY NET
 ========================= */
 process.on("uncaughtException", (err) => {
-  console.log("❌ Uncaught Exception:", err);
+  console.log("❌ Uncaught:", err.message);
 });
 
 process.on("unhandledRejection", (err) => {
-  console.log("❌ Unhandled Rejection:", err);
+  console.log("❌ Rejection:", err?.message || err);
 });
 
 /* =========================
@@ -39,7 +39,7 @@ app.listen(PORT, "0.0.0.0", () => {
 });
 
 /* =========================
-   📁 SAFE SESSION FOLDER
+   📁 SAFE STORAGE
 ========================= */
 const SESSION_PATH = "./sessions";
 
@@ -48,30 +48,44 @@ if (!fs.existsSync(SESSION_PATH)) {
 }
 
 /* =========================
-   🔐 SESSION LOADER (SAFE)
+   🔐 SAFE SESSION LOADER
+   (NEVER CRASHES BOT)
 ========================= */
 function loadSession() {
   try {
-    if (!config.SESSION_ID) return;
+    if (!config.SESSION_ID) {
+      console.log("⚠️ No SESSION_ID, QR mode enabled");
+      return;
+    }
 
-    const decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf-8");
+    let decoded;
+    try {
+      decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf-8");
+    } catch {
+      console.log("❌ SESSION decode failed");
+      return;
+    }
 
-    // Only write if valid JSON
-    JSON.parse(decoded);
+    try {
+      JSON.parse(decoded);
+    } catch {
+      console.log("❌ SESSION not valid JSON, skipping write");
+      return;
+    }
 
     fs.writeFileSync(
       path.join(SESSION_PATH, "creds.json"),
       decoded
     );
 
-    Logger.success("Session loaded successfully ✔");
+    console.log("✅ Session loaded safely");
   } catch (e) {
-    Logger.error("SESSION_ID invalid or corrupted");
+    console.log("⚠️ Session loader error ignored");
   }
 }
 
 /* =========================
-   🤖 START BOT
+   🤖 BOT CORE STARTER
 ========================= */
 async function startBot() {
   try {
@@ -80,23 +94,36 @@ async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_PATH);
     const { version } = await fetchLatestBaileysVersion();
 
+    if (!state) {
+      throw new Error("Auth state missing");
+    }
+
     const sock = makeWASocket({
       version,
       auth: state,
       printQRInTerminal: !config.SESSION_ID,
-      browser: [config.BOT_NAME, "Heroku", "1.0.0"],
+      browser: [config.BOT_NAME, "Heroku", "v3"],
       syncFullHistory: false,
       markOnlineOnConnect: true
     });
 
+    global.sock = sock;
+
+    /* =========================
+       🧠 AMD ENGINE SAFE LOAD
+    ========================= */
     const amd = new AMD(sock, config);
     global.amd = amd;
 
-    amd.loadPlugins();
-    amd.watchPlugins();
+    try {
+      amd.loadPlugins();
+      amd.watchPlugins();
+    } catch (e) {
+      console.log("⚠️ AMD plugin error ignored:", e.message);
+    }
 
     /* =========================
-       💬 MESSAGE HANDLER
+       💬 MESSAGE HANDLER SAFE
     ========================= */
     sock.ev.on("messages.upsert", async ({ messages }) => {
       try {
@@ -104,37 +131,39 @@ async function startBot() {
         if (!msg || !msg.message) return;
 
         if (config.AUTO_READ_MESSAGES) {
-          await sock.readMessages([msg.key]);
+          await sock.readMessages([msg.key]).catch(() => {});
         }
 
-        await amd.handleMessage(msg);
+        await amd.handleMessage(msg).catch(() => {});
 
-      } catch (err) {
-        Logger.error("Message handler error: " + err.message);
+      } catch (e) {
+        console.log("⚠️ Message handler safe error");
       }
     });
 
     /* =========================
-       👀 STATUS SYSTEM
+       👀 STATUS SYSTEM SAFE
     ========================= */
-    amd.statusHook();
+    try {
+      amd.statusHook();
 
-    amd.on("status", async (msg) => {
-      try {
-        if (config.AUTO_STATUS_VIEW) {
-          await sock.readMessages([msg.key]);
-        }
+      amd.on("status", async (msg) => {
+        try {
+          if (config.AUTO_STATUS_VIEW) {
+            await sock.readMessages([msg.key]).catch(() => {});
+          }
 
-        if (config.AUTO_STATUS_LIKE) {
-          await sock.sendMessage(msg.key.remoteJid, {
-            react: {
-              text: config.STATUS_REACTION || "🔥",
-              key: msg.key
-            }
-          });
-        }
-      } catch (e) {}
-    });
+          if (config.AUTO_STATUS_LIKE) {
+            await sock.sendMessage(msg.key.remoteJid, {
+              react: {
+                text: config.STATUS_REACTION || "🔥",
+                key: msg.key
+              }
+            }).catch(() => {});
+          }
+        } catch {}
+      });
+    } catch {}
 
     /* =========================
        🔐 SAVE CREDS
@@ -142,38 +171,37 @@ async function startBot() {
     sock.ev.on("creds.update", saveCreds);
 
     /* =========================
-       🔁 CONNECTION HANDLER
+       🔁 CONNECTION ENGINE (AUTO FIX)
     ========================= */
     sock.ev.on("connection.update", (update) => {
       const { connection, lastDisconnect } = update;
 
       if (connection === "open") {
-        Logger.success(`${config.BOT_NAME} connected ⚡`);
+        console.log(`✅ ${config.BOT_NAME} connected`);
       }
 
       if (connection === "close") {
         const reason = lastDisconnect?.error?.output?.statusCode;
 
-        Logger.warn("Connection closed");
+        console.log("⚠️ Connection closed");
 
-        if (
-          config.AUTO_RECONNECT &&
-          reason !== DisconnectReason.loggedOut
-        ) {
-          setTimeout(() => startBot(), 5000);
-        } else {
-          Logger.error("Logged out or fatal error. Manual restart needed.");
+        if (reason === DisconnectReason.loggedOut) {
+          console.log("❌ Logged out - manual session required");
+          return;
         }
+
+        console.log("🔄 Restarting bot...");
+        setTimeout(() => startBot(), 5000);
       }
     });
 
   } catch (err) {
-    Logger.error("Fatal startup error: " + err.message);
-    setTimeout(() => startBot(), 7000);
+    console.log("❌ Bot crashed, auto-restarting:", err.message);
+    setTimeout(() => startBot(), 8000);
   }
 }
 
 /* =========================
-   🚀 START BOT
+   🚀 START ENGINE
 ========================= */
 startBot();
