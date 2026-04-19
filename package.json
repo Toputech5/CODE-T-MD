@@ -1,55 +1,88 @@
 {
-  "name": "code-t-md",
-  "version": "1.0.0",
-  "description": "CODE-T MD WhatsApp Bot - Advanced Multi-Device System",
+  "name": "code-T md",
+  "version": "2.6.0",
+  "description": "Multi-device WhatsApp bot by Toputech",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "node index.js",
+    "stop": "echo 'Use platform dashboard or CLI to stop the app'"
   },
-  "keywords": [
-    "whatsapp",
-    "bot",
-    "baileys",
-    "md-bot",
-    "code-t",
-    "automation"
-  ],
-  "author": "CODE-T",
-  "license": "MIT",
-  "engines": {
-    "node": ">=18"
-  },
-
+  "author": "Toputech",
+  "license": "Apache-2.0",
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.5",
-    "pino": "^8.17.0",
+    "@adiwajshing/keyed-db": "^0.2.4",
+    "@hapi/boom": "^10.0.0",
+    "@whiskeysockets/baileys": "^6.7.0",
 
-    "axios": "^1.6.8",
-    "node-fetch": "^2.6.9",
+    "acrcloud": "^1.4.0",
+    "anime-character-random": "latest",
+    "aptoide-scraper": "^1.0.1",
+    "async-g-i-s": "^1.4.0",
 
-    "express": "^4.19.2",
-    "cors": "^2.8.5",
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12",
+    "crypto-js": "^4.2.0",
 
-    "fs-extra": "^11.2.0",
+    "discord-mongoose-economy": "^1.2.0",
+    "discord-xp": "^1.1.16",
+
+    "dotenv": "^16.4.0",
+    "express": "^4.18.2",
+
+    "file-type": "^18.7.0",
+    "fluent-ffmpeg": "^2.1.2",
+    "form-data": "^4.0.0",
+    "fs-extra": "^11.1.0",
+
+    "google-it": "^1.6.4",
+    "google-tts-api": "^2.0.2",
+
+    "heroku-client": "3.1.0",
+    "human-readable": "^0.2.1",
+
+    "jimp": "^0.22.10",
+    "jsdom": "^22.1.0",
+
+    "link-preview-js": "^3.0.0",
+    "moment-timezone": "^0.5.45",
+
+    "mongoose": "^8.0.0",
+    "mumaker": "^2.0.0",
+
+    "node-cron": "^3.0.3",
+
+    "node-webpmux": "^3.2.0",
+    "pastebin-js": "latest",
     "path": "^0.12.7",
 
-    "moment-timezone": "^0.5.45",
-    "chalk": "^4.1.2",
+    "pg": "^8.11.3",
+    "qrcode": "latest",
 
-    "file-type": "^18.5.0",
-    "mime-types": "^2.1.35",
+    "secktor-pack": "latest",
+    "simple-git": "^3.20.0",
 
-    "qrcode": "^1.5.4",
+    "translatte": "^3.0.1",
+    "util": "^0.12.5",
 
-    "mongoose": "^8.3.3",
-    "pg": "^8.11.5",
+    "wa-sticker-formatter": "^4.4.0",
 
-    "dotenv": "^16.4.5"
+    "youtubei.js": "^7.2.0",
+    "ytdl-core": "^4.11.5"
   },
-
   "devDependencies": {
-    "nodemon": "^3.1.0"
-  }
+    "pino": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=18.x"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Toputech5/CODE-T-MD.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Toputech5/CODE-T-MD/issues"
+  },
+  "homepage": "https://github.com/Toputech5/CODE-T-MD#readme"
 }
