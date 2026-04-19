@@ -26,10 +26,7 @@ function loadSession() {
   if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir);
   if (fs.existsSync(credsPath)) return;
 
-  if (!config.SESSION_ID) {
-    console.log("❌ No SESSION_ID found");
-    return;
-  }
+  if (!config.SESSION_ID) return;
 
   try {
     const decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf-8");
@@ -42,70 +39,57 @@ function loadSession() {
 
 /**
  * =========================
- * PLUGIN LOADER
+ * AMD-STYLE PLUGIN LOADER
  * =========================
  */
-function loadPlugins(sock) {
-  const pluginMap = new Map();
-  const pluginDir = path.join(__dirname, "plugins");
+function loadModules(sock) {
+  const modules = new Map();
+  const dir = path.join(__dirname, "plugins");
 
-  if (!fs.existsSync(pluginDir)) fs.mkdirSync(pluginDir);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir);
 
-  const files = fs.readdirSync(pluginDir).filter(f => f.endsWith(".js"));
+  const files = fs.readdirSync(dir).filter(f => f.endsWith(".js"));
 
   for (let file of files) {
     try {
       delete require.cache[require.resolve(`./plugins/${file}`)];
-      const plugin = require(`./plugins/${file}`);
+      const mod = require(`./plugins/${file}`);
 
-      // ✅ COMMAND PLUGINS
-      if (plugin.command && plugin.run) {
-        pluginMap.set(plugin.command, plugin);
-        console.log("🧩 Loaded:", plugin.command);
+      // command modules
+      if (mod.command && mod.run) {
+        modules.set(mod.command, mod);
+        console.log("🧩 Loaded module:", mod.command);
       }
 
-      // 🔥 INIT SUPPORT (SMART STATUS WILL USE THIS)
-      if (typeof plugin.init === "function") {
-        plugin.init(sock);
-        console.log("⚙️ Initialized:", file);
+      // init modules (status.js, AI engines, etc)
+      if (typeof mod.init === "function") {
+        mod.init(sock);
+        console.log("⚙️ Init module:", file);
       }
 
     } catch (e) {
-      console.log("❌ Plugin error:", file, e);
+      console.log("❌ Module error:", file, e.message);
     }
   }
 
-  return pluginMap;
+  return modules;
 }
 
 /**
  * =========================
- * PRESENCE SYSTEM
+ * CORE MIDDLEWARE (AMD ENGINE)
  * =========================
  */
-const presenceCooldown = new Map();
-
-function presenceEffect(sock, jid) {
+async function amd(sock, msg, context) {
   try {
-    if (!config.AUTO_PRESENCE) return;
+    // safe hook point for future AI / filters
+    // (status logic MUST live in plugins, not here)
 
-    const now = Date.now();
-    const last = presenceCooldown.get(jid) || 0;
+    return true;
 
-    if (now - last < (config.PRESENCE_COOLDOWN || 4000)) return;
-    presenceCooldown.set(jid, now);
-
-    setTimeout(() => {
-      if (config.PRESENCE_TYPE === "typing") {
-        sock.sendPresenceUpdate("composing", jid).catch(() => {});
-      } else if (config.PRESENCE_TYPE === "recording") {
-        sock.sendPresenceUpdate("recording", jid).catch(() => {});
-      } else {
-        sock.sendPresenceUpdate("available", jid).catch(() => {});
-      }
-    }, 100);
-
-  } catch {}
+  } catch (e) {
+    console.log("AMD error:", e);
+  }
 }
 
 /**
@@ -113,11 +97,11 @@ function presenceEffect(sock, jid) {
  * START BOT
  * =========================
  */
-let isStarting = false;
+let starting = false;
 
 async function startBot() {
-  if (isStarting) return;
-  isStarting = true;
+  if (starting) return;
+  starting = true;
 
   loadSession();
 
@@ -128,110 +112,108 @@ async function startBot() {
     auth: state,
     logger: pino({ level: config.LOG_LEVEL || "silent" }),
     version,
-    browser: ["CODE-T MD", "Chrome", "1.0.0"],
-    syncFullHistory: true, // 🔥 improves status receiving
-    markOnlineOnConnect: true
+    browser: ["AMD-CORE", "Chrome", "1.0.0"],
+    syncFullHistory: true
   });
 
-  console.log("⚡ CODE-T MD starting...");
+  console.log("⚡ AMD CORE STARTING...");
 
-  // 🔥 LOAD PLUGINS WITH INIT
-  const plugins = loadPlugins(sock);
+  const modules = loadModules(sock);
 
   sock.ev.on("creds.update", saveCreds);
 
-  sock.ev.on("connection.update", async (update) => {
+  sock.ev.on("connection.update", (update) => {
     const { connection, lastDisconnect } = update;
 
     if (connection === "open") {
-      console.log("✅ CONNECTED");
-
-      if (config.AUTO_PRESENCE) {
-        sock.sendPresenceUpdate("available").catch(() => {});
-      }
+      console.log("✅ CONNECTED (AMD CORE)");
     }
 
     if (connection === "close") {
+      starting = false;
+
       const reason = lastDisconnect?.error?.output?.statusCode;
 
       console.log("❌ Disconnected:", reason);
 
-      isStarting = false;
-
-      if (reason !== DisconnectReason.loggedOut && config.AUTO_RECONNECT) {
+      if (reason !== DisconnectReason.loggedOut) {
         setTimeout(startBot, 5000);
       } else {
-        console.log("❌ Session expired");
+        console.log("❌ Logged out");
       }
     }
   });
 
   /**
    * =========================
-   * MESSAGE HANDLER
+   * MESSAGE PIPELINE (AMD FLOW)
    * =========================
    */
   sock.ev.on("messages.upsert", async ({ messages }) => {
-
-    await Promise.all(messages.map(async (msg) => {
+    for (let msg of messages) {
       try {
-        if (!msg.message) return;
-        if (msg.key.fromMe) return;
+        if (!msg.message) continue;
+        if (msg.key.fromMe) continue;
 
         const jid = msg.key.remoteJid;
-
-        // ❌ IMPORTANT: DO NOT HANDLE STATUS HERE
-        // Smart system plugin handles it
 
         const body =
           msg.message.conversation ||
           msg.message.extendedTextMessage?.text ||
           "";
 
-        // ⚡ presence
-        presenceEffect(sock, jid);
+        /**
+         * 🧠 STEP 1: AMD CORE HOOK
+         */
+        await amd(sock, msg, { config, jid });
 
-        // 📩 auto read
+        /**
+         * 🧩 STEP 2: AUTO READ (CHAT ONLY)
+         */
         if (config.AUTO_READ_MESSAGES) {
           sock.readMessages([msg.key]).catch(() => {});
         }
 
-        if (!body.startsWith(config.PREFIX)) return;
+        /**
+         * ⚡ STEP 3: COMMAND SYSTEM
+         */
+        if (!body.startsWith(config.PREFIX)) continue;
 
         const args = body.slice(config.PREFIX.length).trim().split(" ");
         const command = args.shift().toLowerCase();
 
-        const plugin = plugins.get(command);
+        const mod = modules.get(command);
 
-        if (plugin) {
-          plugin.run(sock, msg, {
+        if (mod) {
+          await mod.run(sock, msg, {
             from: jid,
             args,
             command,
             body
-          }).catch(console.error);
+          });
         }
 
       } catch (err) {
-        console.log("💥 Error:", err);
+        console.log("💥 MSG ERROR:", err);
       }
-    }));
-
+    }
   });
 }
 
 /**
  * =========================
- * GLOBAL ERROR PROTECTION
+ * START
+ * =========================
+ */
+startBot();
+
+/**
+ * =========================
+ * ERROR HANDLING
  * =========================
  */
 process.on("uncaughtException", console.error);
 process.on("unhandledRejection", console.error);
-
-/**
- * START
- */
-startBot();
 
 /**
  * =========================
@@ -242,21 +224,20 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
-  res.send("CODE-T MD running 🚀");
+  res.send("CODE-T BOT RUNNING 🚀");
 });
 
 app.listen(PORT, () => {
-  console.log("🌐 Server running on port", PORT);
+  console.log("🌐 Server:", PORT);
 });
 
 /**
  * =========================
- * SELF PING
+ * KEEP ALIVE
  * =========================
  */
 setInterval(async () => {
   try {
     await axios.get(`http://localhost:${PORT}`);
-    console.log("🔄 Self ping");
   } catch {}
 }, 1000 * 60 * 5);
