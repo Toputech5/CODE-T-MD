@@ -1,243 +1,145 @@
-const fs = require("fs");
-const path = require("path");
-const pino = require("pino");
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require("@whiskeysockets/baileys");
 const express = require("express");
-const axios = require("axios");
+const path = require("path");
+
 const config = require("./config");
+const Logger = require("./lib/logger");
+const AMD = require("./lib/amd");
 
-require("events").EventEmitter.defaultMaxListeners = 500;
+/* =========================
+   🌐 KEEP ALIVE SERVER
+========================= */
+const app = express();
 
-const {
-  default: makeWASocket,
-  DisconnectReason,
-  useMultiFileAuthState,
-  fetchLatestBaileysVersion
-} = require("@whiskeysockets/baileys");
+app.get("/", (req, res) => {
+  res.send(`${config.BOT_NAME} is running ⚡`);
+});
 
-/**
- * =========================
- * SESSION LOADER
- * =========================
- */
-function loadSession() {
-  const sessionDir = path.join(__dirname, "sessions");
-  const credsPath = path.join(sessionDir, "creds.json");
+app.listen(process.env.PORT || 8000, () => {
+  Logger.info(`Server running on PORT ${process.env.PORT || 8000}`);
+});
 
-  if (!fs.existsSync(sessionDir)) fs.mkdirSync(sessionDir);
-  if (fs.existsSync(credsPath)) return;
-
-  if (!config.SESSION_ID) return;
-
-  try {
-    const decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf-8");
-    fs.writeFileSync(credsPath, decoded);
-    console.log("✅ Session loaded");
-  } catch {
-    console.log("❌ Invalid SESSION_ID");
-  }
-}
-
-/**
- * =========================
- * AMD-STYLE PLUGIN LOADER
- * =========================
- */
-function loadModules(sock) {
-  const modules = new Map();
-  const dir = path.join(__dirname, "plugins");
-
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir);
-
-  const files = fs.readdirSync(dir).filter(f => f.endsWith(".js"));
-
-  for (let file of files) {
-    try {
-      delete require.cache[require.resolve(`./plugins/${file}`)];
-      const mod = require(`./plugins/${file}`);
-
-      // command modules
-      if (mod.command && mod.run) {
-        modules.set(mod.command, mod);
-        console.log("🧩 Loaded module:", mod.command);
-      }
-
-      // init modules (status.js, AI engines, etc)
-      if (typeof mod.init === "function") {
-        mod.init(sock);
-        console.log("⚙️ Init module:", file);
-      }
-
-    } catch (e) {
-      console.log("❌ Module error:", file, e.message);
-    }
-  }
-
-  return modules;
-}
-
-/**
- * =========================
- * CORE MIDDLEWARE (AMD ENGINE)
- * =========================
- */
-async function amd(sock, msg, context) {
-  try {
-    // safe hook point for future AI / filters
-    // (status logic MUST live in plugins, not here)
-
-    return true;
-
-  } catch (e) {
-    console.log("AMD error:", e);
-  }
-}
-
-/**
- * =========================
- * START BOT
- * =========================
- */
-let starting = false;
-
+/* =========================
+   🤖 START BOT ENGINE
+========================= */
 async function startBot() {
-  if (starting) return;
-  starting = true;
-
-  loadSession();
-
-  const { state, saveCreds } = await useMultiFileAuthState("./sessions");
-  const { version } = await fetchLatestBaileysVersion();
+  const { state, saveCreds } = await useMultiFileAuthState(
+    config.SESSION_NAME
+  );
 
   const sock = makeWASocket({
     auth: state,
-    logger: pino({ level: config.LOG_LEVEL || "silent" }),
-    version,
-    browser: ["AMD-CORE", "Chrome", "1.0.0"],
-    syncFullHistory: true
+    printQRInTerminal: true,
+    browser: [config.BOT_NAME, "Chrome", "1.0.0"]
   });
 
-  console.log("⚡ AMD CORE STARTING...");
+  /* =========================
+     🧠 AMD CORE ENGINE
+  ========================= */
+  const amd = new AMD(sock, config);
+  global.amd = amd;
 
-  const modules = loadModules(sock);
+  amd.loadPlugins();
+  amd.watchPlugins();
 
+  /* =========================
+     💬 MESSAGE HANDLER
+  ========================= */
+  sock.ev.on("messages.upsert", async ({ messages }) => {
+    for (let msg of messages) {
+      try {
+        if (config.AUTO_READ_MESSAGES) {
+          await sock.readMessages([msg.key]);
+        }
+
+        await amd.handleMessage(msg);
+
+      } catch (err) {
+        Logger.error("Message error: " + err.message);
+      }
+    }
+  });
+
+  /* =========================
+     👀 STATUS SYSTEM
+  ========================= */
+  amd.statusHook();
+
+  amd.on("status", async (msg) => {
+    try {
+      if (config.AUTO_STATUS_VIEW) {
+        await sock.readMessages([msg.key]);
+      }
+
+      if (config.AUTO_STATUS_LIKE) {
+        await sock.sendMessage(msg.key.remoteJid, {
+          react: {
+            text: config.STATUS_REACTION,
+            key: msg.key
+          }
+        });
+      }
+
+    } catch (e) {
+      Logger.warn("Status error");
+    }
+  });
+
+  /* =========================
+     ⚡ PRESENCE SYSTEM
+  ========================= */
+  if (config.AUTO_PRESENCE) {
+    sock.ev.on("messages.upsert", async ({ messages }) => {
+      const msg = messages[0];
+      const jid = msg.key.remoteJid;
+
+      try {
+        await sock.sendPresenceUpdate("available", jid);
+
+        setInterval(async () => {
+          await sock.sendPresenceUpdate(
+            config.PRESENCE_TYPE || "typing",
+            jid
+          );
+        }, config.PRESENCE_COOLDOWN);
+
+      } catch (e) {}
+    });
+  }
+
+  /* =========================
+     🔐 SAVE SESSION
+  ========================= */
   sock.ev.on("creds.update", saveCreds);
 
+  /* =========================
+     🔁 CONNECTION HANDLER
+  ========================= */
   sock.ev.on("connection.update", (update) => {
     const { connection, lastDisconnect } = update;
 
     if (connection === "open") {
-      console.log("✅ CONNECTED (AMD CORE)");
+      Logger.success(`${config.BOT_NAME} connected ⚡`);
     }
 
     if (connection === "close") {
-      starting = false;
+      const reason =
+        lastDisconnect?.error?.output?.statusCode;
 
-      const reason = lastDisconnect?.error?.output?.statusCode;
+      Logger.warn("Connection closed, restarting...");
 
-      console.log("❌ Disconnected:", reason);
-
-      if (reason !== DisconnectReason.loggedOut) {
-        setTimeout(startBot, 5000);
+      if (config.AUTO_RECONNECT && reason !== DisconnectReason.loggedOut) {
+        setTimeout(startBot, 3000);
       } else {
-        console.log("❌ Logged out");
+        Logger.error("Logged out. Delete session & rescan QR.");
       }
     }
   });
 
-  /**
-   * =========================
-   * MESSAGE PIPELINE (AMD FLOW)
-   * =========================
-   */
-  sock.ev.on("messages.upsert", async ({ messages }) => {
-    for (let msg of messages) {
-      try {
-        if (!msg.message) continue;
-        if (msg.key.fromMe) continue;
-
-        const jid = msg.key.remoteJid;
-
-        const body =
-          msg.message.conversation ||
-          msg.message.extendedTextMessage?.text ||
-          "";
-
-        /**
-         * 🧠 STEP 1: AMD CORE HOOK
-         */
-        await amd(sock, msg, { config, jid });
-
-        /**
-         * 🧩 STEP 2: AUTO READ (CHAT ONLY)
-         */
-        if (config.AUTO_READ_MESSAGES) {
-          sock.readMessages([msg.key]).catch(() => {});
-        }
-
-        /**
-         * ⚡ STEP 3: COMMAND SYSTEM
-         */
-        if (!body.startsWith(config.PREFIX)) continue;
-
-        const args = body.slice(config.PREFIX.length).trim().split(" ");
-        const command = args.shift().toLowerCase();
-
-        const mod = modules.get(command);
-
-        if (mod) {
-          await mod.run(sock, msg, {
-            from: jid,
-            args,
-            command,
-            body
-          });
-        }
-
-      } catch (err) {
-        console.log("💥 MSG ERROR:", err);
-      }
-    }
-  });
+  return sock;
 }
 
-/**
- * =========================
- * START
- * =========================
- */
+/* =========================
+   🚀 START
+========================= */
 startBot();
-
-/**
- * =========================
- * ERROR HANDLING
- * =========================
- */
-process.on("uncaughtException", console.error);
-process.on("unhandledRejection", console.error);
-
-/**
- * =========================
- * EXPRESS SERVER
- * =========================
- */
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.get("/", (req, res) => {
-  res.send("CODE-T BOT RUNNING 🚀");
-});
-
-app.listen(PORT, () => {
-  console.log("🌐 Server:", PORT);
-});
-
-/**
- * =========================
- * KEEP ALIVE
- * =========================
- */
-setInterval(async () => {
-  try {
-    await axios.get(`http://localhost:${PORT}`);
-  } catch {}
-}, 1000 * 60 * 5);
