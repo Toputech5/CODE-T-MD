@@ -45,7 +45,7 @@ function loadSession() {
  * PLUGIN LOADER
  * =========================
  */
-function loadPlugins() {
+function loadPlugins(sock) {
   const pluginMap = new Map();
   const pluginDir = path.join(__dirname, "plugins");
 
@@ -58,12 +58,20 @@ function loadPlugins() {
       delete require.cache[require.resolve(`./plugins/${file}`)];
       const plugin = require(`./plugins/${file}`);
 
+      // ✅ COMMAND PLUGINS
       if (plugin.command && plugin.run) {
         pluginMap.set(plugin.command, plugin);
         console.log("🧩 Loaded:", plugin.command);
       }
+
+      // 🔥 INIT SUPPORT (SMART STATUS WILL USE THIS)
+      if (typeof plugin.init === "function") {
+        plugin.init(sock);
+        console.log("⚙️ Initialized:", file);
+      }
+
     } catch (e) {
-      console.log("❌ Plugin error:", file);
+      console.log("❌ Plugin error:", file, e);
     }
   }
 
@@ -72,7 +80,7 @@ function loadPlugins() {
 
 /**
  * =========================
- * PRESENCE SYSTEM (LIGHT + FAST)
+ * PRESENCE SYSTEM
  * =========================
  */
 const presenceCooldown = new Map();
@@ -87,7 +95,6 @@ function presenceEffect(sock, jid) {
     if (now - last < (config.PRESENCE_COOLDOWN || 4000)) return;
     presenceCooldown.set(jid, now);
 
-    // non-blocking
     setTimeout(() => {
       if (config.PRESENCE_TYPE === "typing") {
         sock.sendPresenceUpdate("composing", jid).catch(() => {});
@@ -121,12 +128,15 @@ async function startBot() {
     auth: state,
     logger: pino({ level: config.LOG_LEVEL || "silent" }),
     version,
-    browser: ["CODE-T MD", "Chrome", "1.0.0"]
+    browser: ["CODE-T MD", "Chrome", "1.0.0"],
+    syncFullHistory: true, // 🔥 improves status receiving
+    markOnlineOnConnect: true
   });
 
-  const plugins = loadPlugins();
-
   console.log("⚡ CODE-T MD starting...");
+
+  // 🔥 LOAD PLUGINS WITH INIT
+  const plugins = loadPlugins(sock);
 
   sock.ev.on("creds.update", saveCreds);
 
@@ -158,7 +168,7 @@ async function startBot() {
 
   /**
    * =========================
-   * MESSAGE HANDLER (FAST)
+   * MESSAGE HANDLER
    * =========================
    */
   sock.ev.on("messages.upsert", async ({ messages }) => {
@@ -170,52 +180,22 @@ async function startBot() {
 
         const jid = msg.key.remoteJid;
 
-        /**
-         * =========================
-         * STATUS SYSTEM (FIXED)
-         * =========================
-         */
-        if (jid === "status@broadcast") {
+        // ❌ IMPORTANT: DO NOT HANDLE STATUS HERE
+        // Smart system plugin handles it
 
-          if (config.AUTO_STATUS_VIEW || config.AUTO_STATUS_READ) {
-            sock.readMessages([msg.key]).catch(() => {});
-          }
-
-          if (config.AUTO_STATUS_LIKE) {
-            sock.sendMessage(
-              jid,
-              {
-                react: {
-                  text: config.STATUS_REACTION || "🔥",
-                  key: msg.key
-                }
-              },
-              {
-                statusJidList: [msg.key.participant]
-              }
-            ).catch(() => {});
-          }
-
-          return;
-        }
-
-        /**
-         * NORMAL MESSAGE
-         */
         const body =
           msg.message.conversation ||
           msg.message.extendedTextMessage?.text ||
           "";
 
-        // ⚡ fast presence
+        // ⚡ presence
         presenceEffect(sock, jid);
 
-        // 📩 auto read chats
+        // 📩 auto read
         if (config.AUTO_READ_MESSAGES) {
           sock.readMessages([msg.key]).catch(() => {});
         }
 
-        // ❌ not a command
         if (!body.startsWith(config.PREFIX)) return;
 
         const args = body.slice(config.PREFIX.length).trim().split(" ");
@@ -224,7 +204,6 @@ async function startBot() {
         const plugin = plugins.get(command);
 
         if (plugin) {
-          // ⚡ non-blocking plugin execution
           plugin.run(sock, msg, {
             from: jid,
             args,
@@ -250,13 +229,13 @@ process.on("uncaughtException", console.error);
 process.on("unhandledRejection", console.error);
 
 /**
- * START BOT
+ * START
  */
 startBot();
 
 /**
  * =========================
- * EXPRESS SERVER (KEEP ALIVE)
+ * EXPRESS SERVER
  * =========================
  */
 const app = express();
@@ -272,7 +251,7 @@ app.listen(PORT, () => {
 
 /**
  * =========================
- * SELF PING (ANTI-SLEEP)
+ * SELF PING
  * =========================
  */
 setInterval(async () => {
