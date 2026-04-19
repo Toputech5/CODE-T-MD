@@ -39,7 +39,7 @@ app.listen(PORT, "0.0.0.0", () => {
 });
 
 /* =========================
-   📁 SAFE STORAGE
+   📁 SESSION PATH
 ========================= */
 const SESSION_PATH = "./sessions";
 
@@ -48,28 +48,24 @@ if (!fs.existsSync(SESSION_PATH)) {
 }
 
 /* =========================
-   🔐 SAFE SESSION LOADER
-   (NEVER CRASHES BOT)
+   🔐 SAFE SESSION (FIXED)
 ========================= */
 function loadSession() {
   try {
-    if (!config.SESSION_ID) {
-      console.log("⚠️ No SESSION_ID, QR mode enabled");
-      return;
-    }
+    if (!config.SESSION_ID) return;
 
     let decoded;
+
     try {
-      decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf-8");
-    } catch {
+      decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf8");
+    } catch (e) {
       console.log("❌ SESSION decode failed");
       return;
     }
 
-    try {
-      JSON.parse(decoded);
-    } catch {
-      console.log("❌ SESSION not valid JSON, skipping write");
+    // DO NOT strict JSON parse (this was breaking bots)
+    if (typeof decoded !== "string" || decoded.length < 10) {
+      console.log("❌ SESSION invalid");
       return;
     }
 
@@ -78,14 +74,15 @@ function loadSession() {
       decoded
     );
 
-    console.log("✅ Session loaded safely");
+    console.log("✅ Session loaded");
+
   } catch (e) {
-    console.log("⚠️ Session loader error ignored");
+    console.log("⚠️ Session ignored");
   }
 }
 
 /* =========================
-   🤖 BOT CORE STARTER
+   🤖 START BOT
 ========================= */
 async function startBot() {
   try {
@@ -93,10 +90,6 @@ async function startBot() {
 
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_PATH);
     const { version } = await fetchLatestBaileysVersion();
-
-    if (!state) {
-      throw new Error("Auth state missing");
-    }
 
     const sock = makeWASocket({
       version,
@@ -110,60 +103,57 @@ async function startBot() {
     global.sock = sock;
 
     /* =========================
-       🧠 AMD ENGINE SAFE LOAD
+       🧠 AMD ENGINE
     ========================= */
     const amd = new AMD(sock, config);
     global.amd = amd;
 
-    try {
-      amd.loadPlugins();
-      amd.watchPlugins();
-    } catch (e) {
-      console.log("⚠️ AMD plugin error ignored:", e.message);
-    }
+    amd.loadPlugins();
+    amd.watchPlugins();
+    amd.statusHook();
 
     /* =========================
-       💬 MESSAGE HANDLER SAFE
+       💬 MESSAGE HANDLER (FIXED)
     ========================= */
     sock.ev.on("messages.upsert", async ({ messages }) => {
-      try {
-        const msg = messages?.[0];
-        if (!msg || !msg.message) return;
+      const msg = messages?.[0];
+      if (!msg?.message) return;
 
+      try {
         if (config.AUTO_READ_MESSAGES) {
-          await sock.readMessages([msg.key]).catch(() => {});
+          await sock.readMessages([msg.key]);
         }
 
-        await amd.handleMessage(msg).catch(() => {});
+        // ❌ removed .catch() wrapper (was hiding errors)
+        await amd.handleMessage(msg);
 
-      } catch (e) {
-        console.log("⚠️ Message handler safe error");
+      } catch (err) {
+        console.log("⚠️ Message error:", err.message);
       }
     });
 
     /* =========================
-       👀 STATUS SYSTEM SAFE
+       👀 STATUS SYSTEM (FIXED SAFE)
     ========================= */
-    try {
-      amd.statusHook();
+    amd.on("status", async (msg) => {
+      try {
+        if (config.AUTO_STATUS_VIEW) {
+          await sock.readMessages([msg.key]);
+        }
 
-      amd.on("status", async (msg) => {
-        try {
-          if (config.AUTO_STATUS_VIEW) {
-            await sock.readMessages([msg.key]).catch(() => {});
-          }
+        if (config.AUTO_STATUS_LIKE) {
+          await sock.sendMessage(msg.key.remoteJid, {
+            react: {
+              text: config.STATUS_REACTION || "🔥",
+              key: msg.key
+            }
+          });
+        }
 
-          if (config.AUTO_STATUS_LIKE) {
-            await sock.sendMessage(msg.key.remoteJid, {
-              react: {
-                text: config.STATUS_REACTION || "🔥",
-                key: msg.key
-              }
-            }).catch(() => {});
-          }
-        } catch {}
-      });
-    } catch {}
+      } catch (e) {
+        console.log("⚠️ Status error ignored");
+      }
+    });
 
     /* =========================
        🔐 SAVE CREDS
@@ -171,7 +161,7 @@ async function startBot() {
     sock.ev.on("creds.update", saveCreds);
 
     /* =========================
-       🔁 CONNECTION ENGINE (AUTO FIX)
+       🔁 CONNECTION FIXED
     ========================= */
     sock.ev.on("connection.update", (update) => {
       const { connection, lastDisconnect } = update;
@@ -186,22 +176,27 @@ async function startBot() {
         console.log("⚠️ Connection closed");
 
         if (reason === DisconnectReason.loggedOut) {
-          console.log("❌ Logged out - manual session required");
+          console.log("❌ Logged out - session required");
           return;
         }
 
-        console.log("🔄 Restarting bot...");
-        setTimeout(() => startBot(), 5000);
+        console.log("🔄 Restarting...");
+        setTimeout(startBot, 5000);
       }
     });
 
+    /* =========================
+       🔐 SAVE CREDS EVENT
+    ========================= */
+    sock.ev.on("creds.update", saveCreds);
+
   } catch (err) {
-    console.log("❌ Bot crashed, auto-restarting:", err.message);
-    setTimeout(() => startBot(), 8000);
+    console.log("❌ Bot crash:", err.message);
+    setTimeout(startBot, 8000);
   }
 }
 
 /* =========================
-   🚀 START ENGINE
+   🚀 START
 ========================= */
 startBot();
