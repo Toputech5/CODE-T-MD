@@ -2,76 +2,70 @@ const { bold } = require("../lib/utils");
 
 module.exports = {
   cmd: "menu",
-  aliases: ["help", "list", "commands"],
+  aliases: ["help", "commands", "list"],
 
-  run: async ({ sock, msg, from, config }) => {
+  run: async ({ sock, msg, from }) => {
     try {
 
-      // 🧠 GET AMD INSTANCE
       const amd = global.amd;
       if (!amd) {
         return sock.sendMessage(from, {
-          text: "❌ Menu system not linked to AMD loader."
+          text: "❌ CODE-T MD engine not connected."
         });
       }
 
-      // 📦 GET COMMANDS FROM AMD
       const plugins = amd.plugins || new Map();
-      const aliases = amd.aliases || new Map();
 
-      let cmdList = [];
+      let commands = [];
 
+      // 🧠 extract commands safely
       for (let [cmd, plugin] of plugins.entries()) {
         if (!cmd) continue;
+        if (plugin?.hidden) continue; // optional hidden system
 
-        // optional: hide system/internal commands
-        if (plugin.hidden === true) continue;
-
-        cmdList.push(cmd);
+        commands.push(cmd);
       }
 
-      // remove duplicates from aliases
-      for (let [alias, real] of aliases.entries()) {
-        if (real && !cmdList.includes(alias)) {
-          cmdList.push(alias);
-        }
-      }
+      // remove duplicates + sort
+      commands = [...new Set(commands)].sort();
 
-      cmdList = [...new Set(cmdList)].sort();
-
-      // 🧾 FORMAT MENU
+      /* =========================
+         📦 FORMAT MENU
+      ========================= */
       let menu = `
 ╭───〔 🤖 CODE-T-MD MENU 〕───╮
-│ 👤 User: ${msg.pushName || "User"}
-│ ⚡ Commands: ${cmdList.length}
+│ ⚡ Total Commands: ${commands.length}
 ╰─────────────────────────────╯
 
-📌 *AVAILABLE COMMANDS*
+📌 COMMAND LIST
 `;
 
-      let count = 1;
-      for (let cmd of cmdList) {
-        menu += `\n${count++}. ${cmd}`;
+      // group commands (AI-style layout)
+      const half = Math.ceil(commands.length / 2);
+      const left = commands.slice(0, half);
+      const right = commands.slice(half);
+
+      for (let i = 0; i < half; i++) {
+        menu += `\n${left[i] || ""}  |  ${right[i] || ""}`;
       }
 
       menu += `
 
 ╭─────────────────────────────╮
 │ ⚡ Powered by AMD Engine
-│ 🧠 Auto-loaded system
+│ 🧠 Dynamic Plugin Loader
 ╰─────────────────────────────╯
 `;
 
-      // 📤 SEND MENU
       await sock.sendMessage(from, {
         text: menu
       }, { quoted: msg });
 
-    } catch (err) {
-      console.log("❌ Menu error:", err);
+    } catch (e) {
+      console.log("Menu error:", e);
 
       await sock.sendMessage(from, {
-        text: "❌ Failed to load menu."
+        text: "❌ Menu failed to load."
       });
     }
   }
