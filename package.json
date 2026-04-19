@@ -1,13 +1,11 @@
 {
-  "name": "code-T md",
-  "version": "2.6.0",
+  "name": "code-t-md",
+  "version": "2.6.1",
   "description": "Multi-device WhatsApp bot by Toputech",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node index.js",
-    "stop": "echo 'Use platform dashboard or CLI to stop the app'"
+    "start": "node index.js"
   },
   "author": "Toputech",
   "license": "Apache-2.0",
@@ -42,7 +40,6 @@
     "heroku-client": "3.1.0",
     "human-readable": "^0.2.1",
 
-    "jimp": "^0.22.10",
     "jsdom": "^22.1.0",
 
     "link-preview-js": "^3.0.0",
@@ -76,13 +73,5 @@
   },
   "engines": {
     "node": ">=18.x"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/Toputech5/CODE-T-MD.git"
-  },
-  "bugs": {
-    "url": "https://github.com/Toputech5/CODE-T-MD/issues"
-  },
-  "homepage": "https://github.com/Toputech5/CODE-T-MD#readme"
+  }
 }
