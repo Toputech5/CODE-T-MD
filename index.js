@@ -48,26 +48,15 @@ if (!fs.existsSync(SESSION_PATH)) {
 }
 
 /* =========================
-   🔐 SAFE SESSION (FIXED)
+   🔐 SESSION LOADER SAFE
 ========================= */
 function loadSession() {
   try {
     if (!config.SESSION_ID) return;
 
-    let decoded;
+    const decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf8");
 
-    try {
-      decoded = Buffer.from(config.SESSION_ID, "base64").toString("utf8");
-    } catch (e) {
-      console.log("❌ SESSION decode failed");
-      return;
-    }
-
-    // DO NOT strict JSON parse (this was breaking bots)
-    if (typeof decoded !== "string" || decoded.length < 10) {
-      console.log("❌ SESSION invalid");
-      return;
-    }
+    if (!decoded || typeof decoded !== "string") return;
 
     fs.writeFileSync(
       path.join(SESSION_PATH, "creds.json"),
@@ -82,7 +71,7 @@ function loadSession() {
 }
 
 /* =========================
-   🤖 START BOT
+   🤖 BOT STARTER
 ========================= */
 async function startBot() {
   try {
@@ -113,18 +102,24 @@ async function startBot() {
     amd.statusHook();
 
     /* =========================
-       💬 MESSAGE HANDLER (FIXED)
+       💬 MESSAGE HANDLER (FIXED + DEBUG)
     ========================= */
     sock.ev.on("messages.upsert", async ({ messages }) => {
       const msg = messages?.[0];
       if (!msg?.message) return;
 
       try {
-        if (config.AUTO_READ_MESSAGES) {
-          await sock.readMessages([msg.key]);
+
+        // 🔥 ENABLE DEBUG ONLY IF TRUE
+        if (config.DEBUG_MODE) {
+          console.log("📦 RAW TYPE:", Object.keys(msg.message || {}));
+          console.log("📦 RAW MESSAGE:", JSON.stringify(msg.message, null, 2));
         }
 
-        // ❌ removed .catch() wrapper (was hiding errors)
+        if (config.AUTO_READ_MESSAGES) {
+          await sock.readMessages([msg.key]).catch(() => {});
+        }
+
         await amd.handleMessage(msg);
 
       } catch (err) {
@@ -133,12 +128,12 @@ async function startBot() {
     });
 
     /* =========================
-       👀 STATUS SYSTEM (FIXED SAFE)
+       👀 STATUS SYSTEM
     ========================= */
     amd.on("status", async (msg) => {
       try {
         if (config.AUTO_STATUS_VIEW) {
-          await sock.readMessages([msg.key]);
+          await sock.readMessages([msg.key]).catch(() => {});
         }
 
         if (config.AUTO_STATUS_LIKE) {
@@ -147,12 +142,10 @@ async function startBot() {
               text: config.STATUS_REACTION || "🔥",
               key: msg.key
             }
-          });
+          }).catch(() => {});
         }
 
-      } catch (e) {
-        console.log("⚠️ Status error ignored");
-      }
+      } catch {}
     });
 
     /* =========================
@@ -161,7 +154,7 @@ async function startBot() {
     sock.ev.on("creds.update", saveCreds);
 
     /* =========================
-       🔁 CONNECTION FIXED
+       🔁 CONNECTION HANDLER
     ========================= */
     sock.ev.on("connection.update", (update) => {
       const { connection, lastDisconnect } = update;
@@ -180,15 +173,10 @@ async function startBot() {
           return;
         }
 
-        console.log("🔄 Restarting...");
+        console.log("🔄 Restarting bot...");
         setTimeout(startBot, 5000);
       }
     });
-
-    /* =========================
-       🔐 SAVE CREDS EVENT
-    ========================= */
-    sock.ev.on("creds.update", saveCreds);
 
   } catch (err) {
     console.log("❌ Bot crash:", err.message);
@@ -197,6 +185,6 @@ async function startBot() {
 }
 
 /* =========================
-   🚀 START
+   🚀 START BOT
 ========================= */
 startBot();
