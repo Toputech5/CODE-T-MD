@@ -104,28 +104,27 @@ async function startBot() {
     /* =========================
        💬 MESSAGE HANDLER (FIXED + DEBUG)
     ========================= */
-    sock.ev.on("messages.upsert", async ({ messages }) => {
-      const msg = messages?.[0];
-      if (!msg?.message) return;
+ sock.ev.on("messages.upsert", async ({ messages }) => {
+  for (const msg of messages) {
+    if (!msg?.message) continue;
 
-      try {
-
-        // 🔥 ENABLE DEBUG ONLY IF TRUE
-        if (config.DEBUG_MODE) {
-          console.log("📦 RAW TYPE:", Object.keys(msg.message || {}));
-          console.log("📦 RAW MESSAGE:", JSON.stringify(msg.message, null, 2));
-        }
-
-        if (config.AUTO_READ_MESSAGES) {
-          await sock.readMessages([msg.key]).catch(() => {});
-        }
-
-        await amd.handleMessage(msg);
-
-      } catch (err) {
-        console.log("⚠️ Message error:", err.message);
+    try {
+      if (config.DEBUG_MODE) {
+        console.log("📦 TYPE:", Object.keys(msg.message || {}));
+        console.log("📦 MSG:", JSON.stringify(msg.message, null, 2));
       }
-    });
+
+      if (config.AUTO_READ_MESSAGES) {
+        await sock.readMessages([msg.key]).catch(() => {});
+      }
+
+      await amd.handleMessage(msg);
+
+    } catch (err) {
+      console.log("⚠️ Message error:", err.message);
+    }
+  }
+});
 
     /* =========================
        👀 STATUS SYSTEM
