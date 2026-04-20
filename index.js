@@ -109,27 +109,21 @@ async function startBot() {
        💬 MESSAGE HANDLER (FIXED)
     ========================= */
     sock.ev.on("messages.upsert", async ({ messages }) => {
-      for (const msg of messages) {
-        try {
-          if (!msg?.message) continue;
+  for (const msg of messages) {
+    if (!msg) continue;
 
-          console.log("🔥 MESSAGE RECEIVED");
+    console.log("🔥 EVENT TRIGGERED");
 
-          if (config.DEBUG_MODE) {
-            console.log("📦 TYPE:", Object.keys(msg.message || {}));
-          }
+    if (!msg.message) {
+      console.log("⚠️ No message content");
+      continue;
+    }
 
-          if (config.AUTO_READ_MESSAGES) {
-            await sock.readMessages([msg.key]).catch(() => {});
-          }
+    console.log("📩 MESSAGE TYPE:", Object.keys(msg.message));
 
-          await amd.handleMessage(msg);
-
-        } catch (err) {
-          console.log("⚠️ Message error:", err.message);
-        }
-      }
-    });
+    await amd.handleMessage(msg);
+  }
+});
 
     /* =========================
        👀 STATUS SYSTEM
