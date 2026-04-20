@@ -48,7 +48,7 @@ if (!fs.existsSync(SESSION_PATH)) {
 }
 
 /* =========================
-   🔐 SESSION LOADER SAFE
+   🔐 SESSION LOADER
 ========================= */
 function loadSession() {
   try {
@@ -71,7 +71,7 @@ function loadSession() {
 }
 
 /* =========================
-   🤖 BOT STARTER
+   🤖 START BOT
 ========================= */
 async function startBot() {
   try {
@@ -84,12 +84,14 @@ async function startBot() {
       version,
       auth: state,
       printQRInTerminal: !config.SESSION_ID,
-      browser: [config.BOT_NAME, "Heroku", "v3"],
+      browser: [config.BOT_NAME, "Heroku", "v2"],
       syncFullHistory: false,
       markOnlineOnConnect: true
     });
 
     global.sock = sock;
+
+    console.log("🟢 Socket initialized");
 
     /* =========================
        🧠 AMD ENGINE
@@ -101,30 +103,33 @@ async function startBot() {
     amd.watchPlugins();
     amd.statusHook();
 
+    console.log("🧠 PLUGINS LOADED:", amd.plugins.size);
+
     /* =========================
-       💬 MESSAGE HANDLER (FIXED + DEBUG)
+       💬 MESSAGE HANDLER (FIXED)
     ========================= */
- sock.ev.on("messages.upsert", async ({ messages }) => {
-  for (const msg of messages) {
-    if (!msg?.message) continue;
+    sock.ev.on("messages.upsert", async ({ messages }) => {
+      for (const msg of messages) {
+        try {
+          if (!msg?.message) continue;
 
-    try {
-      if (config.DEBUG_MODE) {
-        console.log("📦 TYPE:", Object.keys(msg.message || {}));
-        console.log("📦 MSG:", JSON.stringify(msg.message, null, 2));
+          console.log("🔥 MESSAGE RECEIVED");
+
+          if (config.DEBUG_MODE) {
+            console.log("📦 TYPE:", Object.keys(msg.message || {}));
+          }
+
+          if (config.AUTO_READ_MESSAGES) {
+            await sock.readMessages([msg.key]).catch(() => {});
+          }
+
+          await amd.handleMessage(msg);
+
+        } catch (err) {
+          console.log("⚠️ Message error:", err.message);
+        }
       }
-
-      if (config.AUTO_READ_MESSAGES) {
-        await sock.readMessages([msg.key]).catch(() => {});
-      }
-
-      await amd.handleMessage(msg);
-
-    } catch (err) {
-      console.log("⚠️ Message error:", err.message);
-    }
-  }
-});
+    });
 
     /* =========================
        👀 STATUS SYSTEM
@@ -159,7 +164,7 @@ async function startBot() {
       const { connection, lastDisconnect } = update;
 
       if (connection === "open") {
-        console.log(`✅ ${config.BOT_NAME} connected`);
+        console.log(`✅ ${config.BOT_NAME} CONNECTED`);
       }
 
       if (connection === "close") {
@@ -168,7 +173,7 @@ async function startBot() {
         console.log("⚠️ Connection closed");
 
         if (reason === DisconnectReason.loggedOut) {
-          console.log("❌ Logged out - session required");
+          console.log("❌ Session expired. Re-pair required.");
           return;
         }
 
@@ -184,6 +189,6 @@ async function startBot() {
 }
 
 /* =========================
-   🚀 START BOT
+   🚀 START
 ========================= */
 startBot();
